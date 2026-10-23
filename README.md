@@ -16,9 +16,35 @@ The frontend uses JavaScript, React, Vite, React Router, MapLibre GL, and maplib
 
 Dependencies are managed with **pnpm**, and development/build scripts run with **Bun**. The frontend and Worker deploy separately.
 
-## Project status
+## Run locally
 
-The repository currently contains project requirements and development setup. The application UI, routing, data integration, and Worker handler have not been implemented. It is not yet a runnable flight tracker.
+Install pnpm 12.14.0, Bun 1.4.2 or newer, and Node.js 22.22.0 or newer for tooling compatibility.
+
+1. Open a terminal in the project root.
+2. Install dependencies:
+
+   ```sh
+   pnpm install
+   ```
+
+3. Start the development server using Bun:
+
+   ```sh
+   pnpm dev
+   ```
+
+4. Open [http://localhost:5173](http://localhost:5173) in your browser.
+
+Press `Ctrl+C` in the terminal to stop the server. The Hello World starter does not require environment files, an API key, or a running Worker.
+
+To build and preview the production version locally:
+
+```sh
+pnpm build
+pnpm preview
+```
+
+Open [http://localhost:4173](http://localhost:4173) to view the preview.
 
 ## Project documentation
 
