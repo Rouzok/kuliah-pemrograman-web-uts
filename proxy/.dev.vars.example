@@ -1,0 +1,2 @@
+# Copy to .dev.vars in this directory and replace the placeholder locally.
+AIRLABS_API_KEY=replace_with_your_airlabs_api_key

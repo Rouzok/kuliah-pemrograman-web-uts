@@ -1,0 +1,6 @@
+# Root package only; this file also holds pnpm installation settings.
+savePrefix: ''
+strictPeerDependencies: true
+allowBuilds:
+  esbuild: true
+  workerd: true
