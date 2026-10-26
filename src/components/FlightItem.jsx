@@ -34,28 +34,36 @@ export default function FlightItem({ flight, onSelect }) {
         <p className="text-xs text-slate-400">{flight.airline}</p>
       </div>
 
-      {/* Tombol Bookmark */}
-      <button
-        onClick={handleBookmarkToggle}
-        className={`p-2 rounded-md transition-colors ${
-          isSaved
-            ? 'text-teal-400 hover:text-teal-300'
-            : 'text-slate-500 hover:text-slate-300'
-        }`}
-        title={isSaved ? 'Remove from saved' : 'Save flight'}
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="18"
-          height="18"
-          fill={isSaved ? 'currentColor' : 'none'}
-          stroke="currentColor"
-          strokeWidth="2"
-          viewBox="0 0 256 256"
+      {/* Area Tombol Aksi */}
+      <div className="flex items-center gap-2">
+        {/* Tombol Open baru */}
+        {onSelect && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation(); // Mencegah bentrok dengan klik baris
+              onSelect(flight);
+            }}
+            className="text-xs px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-md transition-colors"
+          >
+            Open
+          </button>
+        )}
+
+        {/* Tombol Bookmark (Tetap seperti sebelumnya) */}
+        <button
+          onClick={handleBookmarkToggle}
+          className={`p-2 rounded-md transition-colors ${
+            isSaved
+              ? 'text-teal-400 hover:text-teal-300'
+              : 'text-slate-500 hover:text-slate-300'
+          }`}
+          title={isSaved ? 'Remove from saved' : 'Save flight'}
         >
-          <path d="M184,32H72A16,16,0,0,0,56,48V224a8,8,0,0,0,12.24,6.78L128,193.43l59.76,37.35A8,8,0,0,0,200,224V48A16,16,0,0,0,184,32Z" />
-        </svg>
-      </button>
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill={isSaved ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" viewBox="0 0 256 256">
+            <path d="M184,32H72A16,16,0,0,0,56,48V224a8,8,0,0,0,12.24,6.78L128,193.43l59.76,37.35A8,8,0,0,0,200,224V48A16,16,0,0,0,184,32Z" />
+          </svg>
+        </button>
+      </div>
     </div>
   );
 }
