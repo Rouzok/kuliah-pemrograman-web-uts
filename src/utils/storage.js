@@ -6,12 +6,15 @@ const notifyChange = () => {
 };
 
 export const getSavedFlights = () => {
+  const data = localStorage.getItem(STORAGE_KEY);
+  if (!data) return [];
+
   try {
-    const data = localStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
+    return JSON.parse(data);
   } catch (error) {
-    console.error('Failed to get saved flights from localStorage:', error);
-    return [];
+    console.error('Failed to parse saved flights:', error);
+    // Lempar error agar bisa ditangkap oleh komponen UI (SavedFlights.jsx)
+    throw new Error("Data penyimpanan lokal bermasalah atau rusak."); 
   }
 };
 
