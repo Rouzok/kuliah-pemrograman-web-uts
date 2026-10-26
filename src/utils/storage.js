@@ -42,3 +42,14 @@ export const removeFlight = (id) => {
     return [];
   }
 };
+
+// Mengecek apakah penerbangan sudah ada di bookmark berdasarkan id
+export const isFlightSaved = (id) => {
+  try {
+    const currentFlights = getSavedFlights();
+    return currentFlights.some((flight) => flight.id === id);
+  } catch (error) {
+    console.error('Failed to check bookmark status:', error);
+    return false;
+  }
+};
