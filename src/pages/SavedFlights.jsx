@@ -5,10 +5,26 @@ import FlightItem from '../components/FlightItem';
 
 export default function SavedFlights() {
   const [savedFlights, setSavedFlights] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
   const navigate = useNavigate();
 
   const loadFlights = () => {
-    setSavedFlights(getSavedFlights());
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = getSavedFlights();
+      // Validasi: pastikan data dari storage adalah array
+      if (!Array.isArray(data)) {
+        throw new Error("Data penerbangan tidak valid.");
+      }
+      setSavedFlights(data);
+    } catch (err) {
+      console.error("Error loading flights:", err);
+      setError("Gagal memuat data. Penyimpanan lokal mungkin bermasalah.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -23,10 +39,38 @@ export default function SavedFlights() {
     navigate('/map', { state: { selectedFlightId: flight.id } });
   };
 
+  // Tampilan saat proses Loading
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center h-48">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-500"></div>
+      </div>
+    );
+  }
+
+  // Tampilan saat terjadi Error
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center mt-24 text-center p-4">
+        <div className="text-red-500 mb-2">
+          <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" viewBox="0 0 256 256">
+            <path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm-8,56a8,8,0,0,1,16,0v56a8,8,0,0,1-16,0Zm8,104a12,12,0,1,1,12-12A12,12,0,0,1,128,184Z"></path>
+          </svg>
+        </div>
+        <p className="text-sm text-slate-300">{error}</p>
+        <button 
+          onClick={loadFlights}
+          className="mt-4 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-md text-xs transition-colors"
+        >
+          Coba Lagi
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col p-4 h-full">
       {savedFlights.length > 0 ? (
-        // Jika ada data, tampilkan daftarnya
         <div className="flex flex-col gap-3">
           {savedFlights.map((flight) => (
             <FlightItem 
@@ -37,18 +81,8 @@ export default function SavedFlights() {
           ))}
         </div>
       ) : (
-        // Jika kosong (Empty State), tampilkan pesan dan ikon
         <div className="flex flex-col items-center justify-center mt-24 text-center">
-          <svg 
-            xmlns="http://www.w3.org/2000/svg" 
-            width="64" 
-            height="64" 
-            fill="none" 
-            stroke="currentColor" 
-            strokeWidth="1.5" 
-            className="text-slate-600 mb-4" 
-            viewBox="0 0 256 256"
-          >
+          <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-slate-600 mb-4" viewBox="0 0 256 256">
             <path d="M184,32H72A16,16,0,0,0,56,48V224a8,8,0,0,0,12.24,6.78L128,193.43l59.76,37.35A8,8,0,0,0,200,224V48A16,16,0,0,0,184,32Z" />
           </svg>
           <h3 className="text-lg font-medium text-slate-300">Belum ada penerbangan</h3>
