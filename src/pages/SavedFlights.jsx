@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getSavedFlights } from '../utils/storage';
 import FlightItem from '../components/FlightItem';
+import { getSavedFlightIdentifier } from '../api/client.js';
 
 export default function SavedFlights() {
   const [savedFlights, setSavedFlights] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [openError, setOpenError] = useState(null);
   const navigate = useNavigate();
 
   const loadFlights = () => {
@@ -36,7 +38,13 @@ export default function SavedFlights() {
   }, []);
 
   const handleOpenFlight = (flight) => {
-    navigate('/map', { state: { selectedFlightId: flight.id } });
+    try {
+      const openSavedFlight = getSavedFlightIdentifier(flight);
+      setOpenError(null);
+      navigate('/map', { state: { openSavedFlight } });
+    } catch {
+      setOpenError('Identitas penerbangan ini belum memiliki kode dan jenis IATA/ICAO yang valid. Simpan ulang dari data penerbangan. Bookmark tetap tersimpan.');
+    }
   };
 
   // Tampilan saat proses Loading
@@ -70,6 +78,7 @@ export default function SavedFlights() {
 
   return (
     <div className="flex flex-col p-4 h-full">
+      {openError && <p role="alert" className="mb-4 text-sm text-amber-300">{openError}</p>}
       {savedFlights.length > 0 ? (
         <div className="flex flex-col gap-3">
           {savedFlights.map((flight) => (

@@ -12,7 +12,7 @@ The interface follows a dark and teal design with sidebar navigation, compact ta
 
 ## Technology
 
-The frontend uses JavaScript, React, Vite, React Router, MapLibre GL, and maplibre-react-components. A Cloudflare Worker proxies aviation requests and keeps the AirLabs API key on the server. Saved flights use browser localStorage; no account or application database is required.
+The frontend uses JavaScript, React, Vite, React Router, MapLibre GL, and maplibre-react-components. A separate Cloudflare Worker is planned to proxy aviation requests and keep the AirLabs API key on the server. Saved flights use browser localStorage; no account or application database is required.
 
 Dependencies are managed with **pnpm**, and development/build scripts run with **Bun**. The frontend and Worker deploy separately.
 
@@ -35,7 +35,7 @@ Install pnpm 12.14.0, Bun 1.4.2 or newer, and Node.js 22.22.0 or newer for tooli
 
 4. Open [http://localhost:5173](http://localhost:5173) in your browser.
 
-Press `Ctrl+C` in the terminal to stop the server. The Hello World starter does not require environment files, an API key, or a running Worker.
+Press `Ctrl+C` in the terminal to stop the server. The company profile is at `/`; the application uses `/map`, `/map/airports`, and `/map/saved`. The map and airport directory are still placeholders.
 
 To build and preview the production version locally:
 
