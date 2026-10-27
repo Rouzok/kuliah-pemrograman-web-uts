@@ -30,7 +30,7 @@ export default function FlightItem({ flight, onSelect }) {
       className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 cursor-pointer transition-colors"
     >
       <div>
-        <h4 className="text-sm font-semibold text-slate-200">{flight.id}</h4>
+        <h4 className="text-sm font-semibold text-slate-200">{flight.code || flight.flight_iata || flight.flight_icao || flight.id}</h4>
         <p className="text-xs text-slate-400">{flight.airline}</p>
       </div>
 
