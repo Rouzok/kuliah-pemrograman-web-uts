@@ -1,84 +1,8 @@
-const FLIGHT_CODE = /^[A-Z0-9]{3,10}$/;
-const IDENTIFIER_TYPES = ['flight_iata', 'flight_icao'];
-const ERRORS = {
-  BAD_INPUT: 'Parameter permintaan tidak valid.',
-  CONFIGURATION: 'Layanan data belum dikonfigurasi atau akses paket belum tersedia.',
-  ACCESS_DENIED: 'Akses ke layanan data tidak diizinkan.',
-  QUOTA: 'Batas permintaan tercapai. Silakan coba lagi nanti.',
-  TIMEOUT: 'Permintaan data melewati batas waktu. Silakan coba lagi.',
-  NETWORK: 'Tidak dapat menghubungi layanan data. Periksa koneksi Anda.',
-  UNAVAILABLE: 'Layanan data sementara tidak tersedia.',
-  INVALID_RESPONSE: 'Layanan data mengirim respons yang tidak valid.',
-};
+import { normalizeFlightParams, normalizeFlightsParams, normalizeAirportParams } from './validation.js';
+import { ApiError, parseRetryAfter, errorCodeForStatus, isValidEnvelope } from './response.js';
 
-export class ApiError extends Error {
-  constructor(code, { status = null, retryAt = null } = {}) {
-    super(ERRORS[code]);
-    this.name = 'ApiError';
-    this.code = code;
-    this.status = status;
-    this.retryAt = retryAt;
-  }
-}
-
-function badInput() {
-  throw new ApiError('BAD_INPUT');
-}
-
-function checkParams(params, allowed) {
-  if (!params || typeof params !== 'object' || Array.isArray(params) ||
-      Object.keys(params).some((key) => !allowed.includes(key))) badInput();
-}
-
-function normalizeCode(code) {
-  if (typeof code !== 'string') badInput();
-  const normalized = code.trim().toUpperCase();
-  if (!FLIGHT_CODE.test(normalized)) badInput();
-  return normalized;
-}
-
-function flightParams(params) {
-  checkParams(params, IDENTIFIER_TYPES);
-  const keys = Object.keys(params);
-  if (keys.length !== 1) badInput();
-  return { [keys[0]]: normalizeCode(params[keys[0]]) };
-}
-
-/** Accept explicit saved identifiers only; a legacy id never implies a type. */
-export function getSavedFlightIdentifier(bookmark) {
-  if (!bookmark || typeof bookmark !== 'object') badInput();
-  if (bookmark.identifierType !== undefined || bookmark.code !== undefined) {
-    if (!IDENTIFIER_TYPES.includes(bookmark.identifierType)) badInput();
-    return { code: normalizeCode(bookmark.code), identifierType: bookmark.identifierType };
-  }
-  const identifierType = IDENTIFIER_TYPES.find((type) => bookmark[type] != null);
-  if (!identifierType) badInput();
-  return { code: normalizeCode(bookmark[identifierType]), identifierType };
-}
-
-function flightsParams(params) {
-  checkParams(params, ['bbox', 'zoom']);
-  const values = params.bbox;
-  if (!Array.isArray(values) || values.length !== 4 || ![...values].every(Number.isFinite)) badInput();
-  const [south, west, north, east] = values;
-  if (south < -90 || north > 90 || west < -180 || east > 180 ||
-      south >= north || west >= east) badInput();
-  const result = { bbox: [south, west, north, east].join(',') };
-  if (Object.hasOwn(params, 'zoom')) {
-    if (!Number.isInteger(params.zoom) || params.zoom < 0 || params.zoom > 11) badInput();
-    result.zoom = params.zoom;
-  }
-  return result;
-}
-
-function airportParams(params) {
-  checkParams(params, ['country_code']);
-  if (!Object.hasOwn(params, 'country_code')) return {};
-  if (typeof params.country_code !== 'string') badInput();
-  const code = params.country_code.trim().toUpperCase();
-  if (!/^[A-Z]{2}$/.test(code)) badInput();
-  return { country_code: code };
-}
+export { ApiError } from './response.js';
+export { getSavedFlightIdentifier } from './validation.js';
 
 function proxyOrigin(baseURL) {
   try {
@@ -89,29 +13,6 @@ function proxyOrigin(baseURL) {
   } catch {
     throw new ApiError('CONFIGURATION');
   }
-}
-
-function retryTime(header, now) {
-  if (!header?.trim()) return null;
-  const value = header.trim();
-  const time = /^\d+$/.test(value) ? now + Number(value) * 1000 :
-    /^[A-Za-z]{3}, /.test(value) ? Date.parse(value) : NaN;
-  return Number.isFinite(time) && time <= 8640000000000000 ? Math.max(time, now) : null;
-}
-
-function statusCode(status) {
-  return ({ 400: 'BAD_INPUT', 403: 'ACCESS_DENIED', 429: 'QUOTA',
-    503: 'CONFIGURATION', 504: 'TIMEOUT' })[status] || 'UNAVAILABLE';
-}
-
-function validEnvelope(body, detail) {
-  const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
-  return object(body) && !Object.hasOwn(body, 'error') && object(body.meta) &&
-    body.meta.source === 'airlabs' && typeof body.meta.fetchedAt === 'string' &&
-    /^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(body.meta.fetchedAt) &&
-    Number.isFinite(Date.parse(body.meta.fetchedAt)) &&
-    (detail ? body.data === null || object(body.data) :
-      Array.isArray(body.data) && body.data.every(object));
 }
 
 // Cancellation belongs to each caller, not to the shared network request.
@@ -143,8 +44,8 @@ export function createApiClient({ baseURL, fetch: fetchImpl = (...args) => globa
         headers: { Accept: 'application/json' }, signal: controller.signal,
       });
       if (!response.ok) {
-        const retryAt = retryTime(response.headers.get('Retry-After'), now());
-        const error = new ApiError(statusCode(response.status), { status: response.status, retryAt });
+        const retryAt = parseRetryAfter(response.headers.get('Retry-After'), now());
+        const error = new ApiError(errorCodeForStatus(response.status), { status: response.status, retryAt });
         if (retryAt > now() && (!cooldown || retryAt > cooldown.retryAt)) cooldown = error;
         throw error;
       }
@@ -154,7 +55,7 @@ export function createApiClient({ baseURL, fetch: fetchImpl = (...args) => globa
         if (controller.signal.aborted) throw new ApiError('TIMEOUT');
         throw new ApiError('INVALID_RESPONSE', { status: response.status });
       }
-      if (!validEnvelope(body, detail)) throw new ApiError('INVALID_RESPONSE', { status: response.status });
+      if (!isValidEnvelope(body, detail)) throw new ApiError('INVALID_RESPONSE', { status: response.status });
       const expiresAt = Date.parse(body.meta.fetchedAt) + ttl;
       // Bound memory during a long session with many different viewport requests.
       for (const [key, entry] of cache) if (entry.expiresAt <= now()) cache.delete(key);
@@ -186,9 +87,9 @@ export function createApiClient({ baseURL, fetch: fetchImpl = (...args) => globa
   }
 
   return {
-    async getFlights(params, options) { return request('/api/flights', flightsParams(params), 30000, options); },
-    async getFlight(params, options) { return request('/api/flight', flightParams(params), 30000, options); },
-    async getAirports(params = {}, options) { return request('/api/airports', airportParams(params), 86400000, options); },
+    async getFlights(params, options) { return request('/api/flights', normalizeFlightsParams(params), 30000, options); },
+    async getFlight(params, options) { return request('/api/flight', normalizeFlightParams(params), 30000, options); },
+    async getAirports(params = {}, options) { return request('/api/airports', normalizeAirportParams(params), 86400000, options); },
   };
 }
 
