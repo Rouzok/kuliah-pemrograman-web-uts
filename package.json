@@ -13,6 +13,7 @@
     "build": "bun run --bun vite build",
     "preview": "bun run --bun vite preview",
     "test:api": "bun test src/api",
+    "test:proxy": "bun test proxy/src",
     "proxy:dev": "bun run --bun wrangler dev --config proxy/wrangler.jsonc",
     "proxy:deploy": "bun run --bun wrangler deploy --config proxy/wrangler.jsonc",
     "proxy:secret": "bun run --bun wrangler secret put AIRLABS_API_KEY --config proxy/wrangler.jsonc"
