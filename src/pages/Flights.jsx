@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getFlight } from '../api/client.js';
+import { metersToFeet, metersPerSecondToKnots, groundState } from '../utils/aircraft.js';
 
 const buttonClass = 'rounded-md bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300 disabled:cursor-not-allowed disabled:opacity-50';
 
@@ -63,7 +64,7 @@ function SavedFlightLookup({ intent }) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [hasIntent, navigate]);
 
-  if (!hasIntent) return <p className="text-sm text-slate-400">Pilih penerbangan untuk melihat detail.</p>;
+  if (!hasIntent) return <p className="text-sm text-slate-400">Pilih pesawat untuk melihat detail. Live Map masih dalam pengembangan.</p>;
 
   const data = result.envelope?.data;
   const waiting = result.error?.retryAt > clock;
@@ -77,7 +78,7 @@ function SavedFlightLookup({ intent }) {
     <section aria-labelledby="saved-flight-heading" className="space-y-4 text-sm text-slate-300">
       <div className="flex items-start justify-between gap-3">
         <h1 id="saved-flight-heading" className="break-all text-lg font-semibold text-teal-300">
-          {typeof code === 'string' ? code.trim().toUpperCase() : 'Penerbangan tersimpan'}
+          {typeof code === 'string' ? code.trim().toLowerCase() : 'Pesawat tersimpan'}
         </h1>
         <button ref={closeButton} onClick={close} className={buttonClass} aria-label="Tutup detail penerbangan">
           Tutup
@@ -86,7 +87,7 @@ function SavedFlightLookup({ intent }) {
 
       <div role="status" aria-live="polite">
         {result.status === 'pending' && <p>Memuat penerbangan terkini…</p>}
-        {result.status === 'empty' && <p>Penerbangan saat ini tidak ditemukan. Bookmark tetap tersimpan.</p>}
+        {result.status === 'empty' && <p>Pesawat saat ini tidak terpantau. Ini tidak berarti pesawat telah mendarat. Bookmark tetap tersimpan.</p>}
       </div>
 
       {result.status === 'error' && (
@@ -101,13 +102,24 @@ function SavedFlightLookup({ intent }) {
       {data && (
         <dl className="space-y-2">
           <div>
-            <dt className="text-slate-500">Penerbangan</dt>
-            <dd>{text(data.flight_iata ?? data.flight_icao)}</dd>
+            <dt className="text-slate-500">Callsign / ICAO24</dt>
+            <dd>{text(data.callsign || data.icao24)}</dd>
           </div>
           <div>
             <dt className="text-slate-500">Status penyedia</dt>
-            <dd>{text(data.status)}</dd>
+            <dd>{groundState(data.on_ground)}</dd>
           </div>
+          {[
+            ['Negara', data.origin_country], ['Latitude', data.latitude], ['Longitude', data.longitude],
+            ['Ketinggian barometrik (ft)', metersToFeet(data.baro_altitude)],
+            ['Ketinggian geometrik (ft)', metersToFeet(data.geo_altitude)],
+            ['Ground speed (kt)', metersPerSecondToKnots(data.velocity)], ['Heading (°)', data.true_track],
+            ['Vertical rate (m/s)', data.vertical_rate],
+            ['Position observed (UTC)', data.time_position === null ? null : new Date(data.time_position * 1000).toISOString()],
+            ['Last contact (UTC)', data.last_contact === null ? null : new Date(data.last_contact * 1000).toISOString()],
+            ['Snapshot (UTC)', new Date(result.envelope.meta.snapshotTime * 1000).toISOString()],
+          ].map(([label, value]) => <div key={label}><dt className="text-slate-500">{label}</dt><dd>{text(value)}</dd></div>)}
+          <p>Ground adalah laporan penyedia, bukan konfirmasi tiba di tujuan.</p>
           <div>
             <dt className="text-slate-500">Data diambil (UTC)</dt>
             <dd>{new Date(result.envelope.meta.fetchedAt).toISOString()}</dd>
