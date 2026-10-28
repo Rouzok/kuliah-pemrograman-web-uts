@@ -8,7 +8,7 @@ export default function Sidebar() {
   const navItems = [
     { name: 'Live map', path: '/map' },
     { name: 'Airports', path: '/map/airports' },
-    { name: 'Saved flights', path: '/map/saved' },
+    { name: 'Saved Aircraft', path: '/map/saved' },
   ];
 
   return (
