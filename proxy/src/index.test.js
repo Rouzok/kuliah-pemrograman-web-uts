@@ -1,271 +1,205 @@
-import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
-import worker from './index.js';
+import { afterEach, describe, expect, test } from 'bun:test';
+import axios from 'axios';
+import worker, { handleRequest } from './index.js';
+import { transport, createTokenManager } from './oauth.js';
+import { fetchOpenSky, ROUTES } from './opensky.js';
 import { createApiClient } from '../../src/api/client.js';
 
-const ENV = { AIRLABS_API_KEY: 'test-only-placeholder' };
-const json = (response, options) => Response.json({ response }, options);
-const request = (path, options) => new Request(`http://localhost:8787${path}`, options);
-const run = (path, options, env = ENV) => worker.fetch(request(path, options), env);
-const upstream = (handler = () => json([])) => spyOn(globalThis, 'fetch').mockImplementation(handler);
-afterEach(() => mock.restore());
-
-async function expectError(response, status, code) {
-  expect(response.status).toBe(status);
-  expect(response.headers.get('Cache-Control')).toBe('no-store');
-  const body = await response.json();
-  expect(body).toEqual({ error: { code, message: expect.any(String) } });
-  expect(JSON.stringify(body)).not.toContain(ENV.AIRLABS_API_KEY);
-  expect(body.error.message).not.toContain('unsafe-provider-message');
+const row = () => ['ABC123', ' GIA1 ', 'Indonesia', 0, 0, null, null, 0, false, 0, 0, null, null, null, 'ignored', false, 0];
+const payload = (states = [row()]) => ({ time: 1700000000, states });
+const env = () => ({ OPENSKY_CLIENT_ID: 'dummy-id', OPENSKY_CLIENT_SECRET: 'dummy-secret',
+  ALLOWED_ORIGINS: 'http://localhost:5173,http://localhost:4173', RATE_LIMITER: { limit: async () => ({ success: true }) } });
+const headers = { Origin: 'http://localhost:5173', 'CF-Connecting-IP': '192.0.2.1' };
+const path = '/api/flights?bbox=-1,100,1,102';
+const response = (data, status = 200, headers = {}) => ({ data, status, headers: new axios.AxiosHeaders(headers) });
+const originalAdapter = transport.defaults.adapter;
+const originalCaches = globalThis.caches;
+afterEach(() => { transport.defaults.adapter = originalAdapter; globalThis.caches = originalCaches; });
+function upstream(handler = () => response(payload())) {
+  const calls = [];
+  // Fresh credentials avoid sharing tokens between isolated handler tests.
+  const bindings = env(); bindings.OPENSKY_CLIENT_ID += Math.random();
+  transport.defaults.adapter = async (config) => {
+    calls.push(config);
+    return config.method === 'post' ? response({ access_token: 'dummy-token', expires_in: 1800 }) : handler(config);
+  };
+  return { calls, bindings, run: (url = path, init = {}) => handleRequest(new Request(`https://proxy.test${url}`, { headers, ...init }), bindings) };
 }
-
-describe('Worker routing and validation', () => {
-  test('unknown routes, methods, OPTIONS and missing key never call upstream', async () => {
-    const fetchMock = upstream();
-    for (const path of ['/api/unknown', '/api/flights/extra', '/api/flights/', '/api/toString', '/map', '/api/flight.xml']) {
-      await expectError(await run(path), 404, 'NOT_FOUND');
-    }
-    for (const method of ['POST', 'PUT', 'DELETE', 'PATCH', 'HEAD']) {
-      const response = await run('/api/flights', { method });
-      expect(response.headers.get('Allow')).toBe('GET, OPTIONS');
-      await expectError(response, 405, 'METHOD_NOT_ALLOWED');
-    }
-    for (const path of ['/api/flights', '/api/flight', '/api/airports']) {
-      const response = await run(path, { method: 'OPTIONS' }, {});
-      expect(response.status).toBe(204);
-      expect(await response.text()).toBe('');
-      expect(response.headers.has('Access-Control-Allow-Origin')).toBe(false);
-    }
-    for (const env of [undefined, {}, { AIRLABS_API_KEY: '' }, { AIRLABS_API_KEY: '   ' }, { AIRLABS_API_KEY: 42 }]) {
-      await expectError(await worker.fetch(request('/api/airports'), env), 503, 'CONFIGURATION_ERROR');
-    }
-    expect(fetchMock).not.toHaveBeenCalled();
+function cacheStore() {
+  const records = new Map();
+  globalThis.caches = { default: {
+    match: async (request) => records.get(request.url)?.clone(),
+    put: async (request, value) => { records.set(request.url, value.clone()); },
+  } };
+  return records;
+}
+describe('public Worker contract', () => {
+  test('maps bounds, bearer transport, named fields and snapshot metadata', async () => {
+    const { calls, run } = upstream();
+    const result = await run(); expect(result.status).toBe(200);
+    const body = await result.json();
+    expect(body.meta).toMatchObject({ source: 'opensky', snapshotTime: 1700000000 });
+    expect(Number.isFinite(Date.parse(body.meta.fetchedAt))).toBe(true);
+    expect(body.data[0]).toEqual({ icao24: 'abc123', callsign: 'GIA1', origin_country: 'Indonesia',
+      time_position: 0, last_contact: 0, longitude: null, latitude: null, baro_altitude: 0,
+      on_ground: false, velocity: 0, true_track: 0, vertical_rate: null, geo_altitude: null });
+    expect(calls[0].url).toBe('https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token');
+    expect(new URLSearchParams(calls[0].data).get('grant_type')).toBe('client_credentials');
+    expect(calls[0].headers.get('Authorization')).toBeUndefined();
+    expect(calls[1].url).toBe('https://opensky-network.org/api/states/all?lamin=-1&lomin=100&lamax=1&lomax=102');
+    expect(calls[1].headers.get('Authorization')).toBe('Bearer dummy-token');
+    expect(calls[1].fetchOptions.redirect).toBe('manual');
+    expect(calls[1].withCredentials).toBe(false);
   });
-
-  test('rejects missing, unknown, duplicate, and credential/destination parameters', async () => {
-    const fetchMock = upstream();
-    for (const path of [
-      '/api/flights', '/api/flight', '/api/flight?flight_iata=AA6&flight_icao=AAL6',
-      '/api/flight?flight_iata=AA6&flight_iata=AA6',
-      '/api/flights?bbox=0,0,1,1&bbox=0,0,1,1',
-      '/api/flights?bbox=0,0,1,1&zoom=1&zoom=1',
-      '/api/airports?country_code=ID&country_code=ID',
-      '/api/flight?flight_iata=AA6&%66light_iata=AA6',
-      '/api/airports?api_key=bad', '/api/airports?signature=bad',
-      '/api/airports?url=https://example.com', '/api/airports?_fields=name',
-      '/api/airports?_view=array', '/api/airports?search=jakarta',
-    ]) await expectError(await run(path), 400, 'BAD_INPUT');
-    expect(fetchMock).not.toHaveBeenCalled();
+  test('normalizes detail ICAO24, empty states, absent aircraft and ground boolean', async () => {
+    const { run } = upstream(() => { const state = row(); state[8] = true; return response(payload([state])); });
+    expect((await (await run('/api/flight?icao24=%20ABC123%20')).json()).data.on_ground).toBe(true);
+    expect((await (await run('/api/flight?icao24=def456')).json()).data).toBeNull();
+    for (const states of [[], null]) {
+      const empty = upstream(() => response(payload(states)));
+      expect((await (await empty.run()).json()).data).toEqual([]);
+    }
   });
-
-  test('rejects invalid bounds, zoom, flight codes and country codes', async () => {
-    const fetchMock = upstream();
-    for (const bbox of ['0,0,0,1', '0,1,1,0', '-91,0,1,1', '0,0,91,1',
-      '0,-181,1,1', '0,0,1,181', '0,170,10,-170', '0,0,NaN,1',
-      '0,0,Infinity,1', '0,0,1e999,1', '0,,1,2', '0,0,1', '0,0,1,2,3', '0,0,0x10,2']) {
-      await expectError(await run(`/api/flights?bbox=${encodeURIComponent(bbox)}`), 400, 'BAD_INPUT');
-    }
-    for (const zoom of ['', '-1', '12', '1.5', 'NaN', 'Infinity', '1e1']) {
-      await expectError(await run(`/api/flights?bbox=0,0,1,2&zoom=${zoom}`), 400, 'BAD_INPUT');
-    }
-    for (const code of ['', 'A1', 'ABCDEFGHIJK', 'AA-6', 'ＡＡ６', 'AA 6', 'AA6&api_key=bad']) {
-      await expectError(await run(`/api/flight?flight_iata=${encodeURIComponent(code)}`), 400, 'BAD_INPUT');
-    }
-    for (const code of ['', 'I', 'IDN', '12', 'ＩＤ']) {
-      await expectError(await run(`/api/airports?country_code=${encodeURIComponent(code)}`), 400, 'BAD_INPUT');
-    }
-    expect(fetchMock).not.toHaveBeenCalled();
+  test('validates routes, methods and strict duplicate/unknown parameters before upstream', async () => {
+    const { run, calls } = upstream();
+    expect((await run('/missing')).status).toBe(404);
+    expect((await run(path, { method: 'POST' })).status).toBe(405);
+    for (const url of ['/api/flights', `${path}&zoom=5`, `${path}&bbox=0,0,1,1`, '/api/flights?bbox=0,170,1,-170',
+      '/api/flights?bbox=0,0,0,1', '/api/flights?bbox=-91,0,1,1', '/api/flights?bbox=0,0,1,181',
+      '/api/flights?bbox=0,,1,2', '/api/flight?icao24=abc12g', '/api/flight?flight_iata=GA123',
+      '/api/flight?icao24=abc123&icao24=def456', '/api/airports?country_code=ID']) expect((await run(url)).status).toBe(400);
+    expect(calls).toHaveLength(0);
   });
-
-  test('normalizes queries, fixes upstream destinations and never forwards client credentials', async () => {
-    const fetchMock = upstream((url) => json(new URL(url).pathname.endsWith('/flight') ? { flight_iata: 'AA6' } : []));
-    const paths = [
-      '/api/flights?bbox=-90,-180,90,180&zoom=0',
-      '/api/flights?bbox=1e-7,0,1,2&zoom=11',
-      '/api/flight?flight_iata=%20aa6%20', '/api/flight?flight_icao=aal6',
-      '/api/airports?country_code=%20id%20', '/api/airports',
-    ];
-    for (const path of paths) {
-      expect((await run(path, { headers: { Cookie: 'client-cookie', Authorization: 'Bearer client-token' } })).status).toBe(200);
+  test('rejects malformed containers, arrays, coordinates and booleans safely', async () => {
+    for (const body of [null, [], {}, { time: 1, states: {} }, { time: '1', states: [] },
+      payload([null]), payload([{}]), payload([row().slice(0, 10)]), payload([row(), row()]),
+      ...[[0, 'wrong'], [5, 181], [6, -91], [8, 'false'], [9, {}], [3, -1]].map(([index, value]) => {
+        const state = row(); state[index] = value; return payload([state]);
+      })]) {
+      const { run } = upstream(() => response(body));
+      const result = await run(); expect(result.status).toBe(502);
+      expect(await result.json()).toEqual({ error: { code: 'UPSTREAM_UNAVAILABLE', message: 'Flight data is temporarily unavailable.' } });
     }
-    for (const [input, init] of fetchMock.mock.calls) {
-      const url = new URL(input);
-      expect(url.origin).toBe('https://airlabs.co');
-      expect(['/api/v9/flights', '/api/v9/flight', '/api/v9/airports']).toContain(url.pathname);
-      expect(url.searchParams.get('api_key')).toBe(ENV.AIRLABS_API_KEY);
-      expect(init).toMatchObject({ method: 'GET', credentials: 'omit', redirect: 'manual' });
-      expect(init.headers).toEqual({ Accept: 'application/json' });
-      if (!url.pathname.endsWith('/flight')) expect(url.searchParams.has('_fields')).toBe(true);
+  });
+  test('HTTP errors and redirects never become empty successes; rate headers normalize', async () => {
+    for (const [status, expected] of [[301, 502], [302, 502], [307, 502], [308, 502], [404, 502], [500, 502], [401, 503], [403, 503], [408, 504], [504, 504], [429, 429]]) {
+      const { run } = upstream(() => response('unsafe-token', status, { 'X-Rate-Limit-Retry-After-Seconds': '60' }));
+      const result = await run(); expect(result.status).toBe(expected);
+      expect(result.headers.get('Retry-After')).toBe('60');
+      expect(await result.text()).not.toContain('unsafe-token');
     }
-    expect(new URL(fetchMock.mock.calls[2][0]).searchParams.get('flight_iata')).toBe('AA6');
-    expect(new URL(fetchMock.mock.calls[3][0]).searchParams.get('flight_icao')).toBe('AAL6');
-    expect(new URL(fetchMock.mock.calls[4][0]).searchParams.get('country_code')).toBe('ID');
-    expect(new URL(fetchMock.mock.calls[5][0]).searchParams.has('country_code')).toBe(false);
   });
 });
-
-describe('sanitized payloads', () => {
-  test('returns only approved fields, preserving zero, null, units and observation timestamps', async () => {
-    upstream(() => Response.json({
-      request: { api_key: ENV.AIRLABS_API_KEY }, terms: 'private metadata',
-      response: [{ hex: 'abc123', flight_iata: 'AA6', lat: 0, lng: 0, alt: 0,
-        speed: 775, updated: 1626153069, reg_number: null,
-        api_key: ENV.AIRLABS_API_KEY, request: { secret: 'hidden' }, unknown: 'drop' }],
-    }));
-    const before = Date.now();
-    const response = await run('/api/flights?bbox=-1,-1,1,1');
-    const body = await response.json();
-    expect(response.status).toBe(200);
-    expect(response.headers.get('Cache-Control')).toBe('no-store');
-    expect(body.data).toEqual([{ hex: 'abc123', flight_iata: 'AA6', lat: 0, lng: 0, alt: 0,
-      speed: 775, updated: 1626153069, reg_number: null }]);
-    expect(body.meta.source).toBe('airlabs');
-    expect(Date.parse(body.meta.fetchedAt)).toBeGreaterThanOrEqual(before);
-    expect(Date.parse(body.meta.fetchedAt)).toBeLessThanOrEqual(Date.now());
-    expect(JSON.stringify(body)).not.toContain(ENV.AIRLABS_API_KEY);
-    expect(Object.keys(body)).toEqual(['data', 'meta']);
+describe('CORS, rate limits and cache', () => {
+  test('preflight is local and exact origins are enforced on failures too', async () => {
+    const { run, calls, bindings } = upstream();
+    let limited = 0; bindings.RATE_LIMITER.limit = async () => { limited++; return { success: true }; };
+    const preflight = await run(path, { method: 'OPTIONS', headers: { Origin: headers.Origin, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'accept, Content-Type' } });
+    expect(preflight.status).toBe(204); expect(limited).toBe(0); expect(calls).toHaveLength(0);
+    expect(preflight.headers.get('Access-Control-Allow-Origin')).toBe(headers.Origin);
+    expect(preflight.headers.get('Access-Control-Allow-Credentials')).toBeNull();
+    expect((await run(path, { headers: { ...headers, Origin: 'http://localhost:5173.evil' } })).status).toBe(403);
+    expect((await run(path, { method: 'OPTIONS', headers: { Origin: headers.Origin, 'Access-Control-Request-Method': 'POST' } })).status).toBe(400);
+    const bad = await run('/api/flight?icao24=bad');
+    expect(bad.headers.get('Access-Control-Allow-Origin')).toBe(headers.Origin);
+    expect(bad.headers.get('Access-Control-Expose-Headers')).toBe('Retry-After');
+    expect(bad.headers.get('Vary')).toBe('Origin');
+    expect((await run(path, { headers: { 'CF-Connecting-IP': '192.0.2.1' } })).status).toBe(200);
   });
-
-  test('details retain documented time variants; airports retain only directory fields', async () => {
-    const record = { flight_iata: 'AA6', model: 'Boeing 777', manufacturer: 'Boeing',
-      dep_time: '2026-10-28 08:00', dep_time_utc: '2026-10-28 01:00', dep_time_ts: 1793149200,
-      arr_estimated_utc: '2026-10-28 03:00', arr_estimated_ts: 1793156400,
-      request: { api_key: ENV.AIRLABS_API_KEY } };
-    const fetchMock = upstream(() => json(record));
-    const detail = await (await run('/api/flight?flight_iata=AA6')).json();
-    const { request: ignored, ...expected } = record;
-    expect(detail.data).toEqual(expected);
-    fetchMock.mockImplementation(() => json([{ name: 'Airport', iata_code: null, icao_code: 'TEST',
-      country_code: 'ID', lat: 0, lng: 0, website: 'drop', phone: 'drop', names: { en: 'drop' } }]));
-    expect((await (await run('/api/airports')).json()).data).toEqual([
-      { name: 'Airport', iata_code: null, icao_code: 'TEST', country_code: 'ID', lat: 0, lng: 0 },
-    ]);
+  test('limiter rejects before cache/provider; missing/failing binding is controlled', async () => {
+    const { run, calls, bindings } = upstream();
+    cacheStore();
+    bindings.RATE_LIMITER.limit = async ({ key }) => { expect(key).toBe('192.0.2.1'); return { success: false }; };
+    const result = await run(); expect(result.status).toBe(429); expect(result.headers.get('Retry-After')).toBe('60');
+    bindings.RATE_LIMITER.limit = async () => { throw new Error('unsafe'); };
+    expect((await run()).status).toBe(503);
+    delete bindings.RATE_LIMITER; expect((await run()).status).toBe(503);
+    expect(calls).toHaveLength(0);
   });
-
-  test('accepts explicit empty lists and confirmed detail misses', async () => {
-    const fetchMock = upstream();
-    expect((await (await run('/api/airports')).json()).data).toEqual([]);
-    expect((await (await run('/api/flights?bbox=0,0,1,1')).json()).data).toEqual([]);
-    fetchMock.mockImplementation(() => json(null));
-    expect((await (await run('/api/flight?flight_iata=AA6')).json()).data).toBeNull();
-    for (const status of [200, 404]) {
-      fetchMock.mockImplementation(() => Response.json({ error: { code: 'not_found', message: 'unsafe-provider-message' } }, { status }));
-      const response = await run('/api/flight?flight_iata=AA6');
-      expect(response.status).toBe(200);
-      expect((await response.json()).data).toBeNull();
-    }
+  test('canonical provider-versioned cache is origin independent with preserved timestamps and expiry', async () => {
+    const records = cacheStore();
+    const { run, calls } = upstream();
+    const first = await run(); const body = await first.json();
+    const second = await run('/api/flights?bbox=-1.0,100,1,102', { headers: { ...headers, Origin: 'http://localhost:4173' } });
+    expect(await second.json()).toEqual(body);
+    expect(second.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:4173');
+    expect(second.headers.get('Cache-Control')).toBe('no-store'); expect(calls).toHaveLength(2);
+    const [key, stored] = [...records][0];
+    expect(key).toContain('/__cache/opensky-v1/');
+    expect(stored.headers.get('Access-Control-Allow-Origin')).toBeNull();
+    records.set(key, Response.json({ ...body, meta: { ...body.meta, fetchedAt: new Date(Date.now() - 30000).toISOString() } }));
+    await run(); expect(calls).toHaveLength(3);
   });
-
-  test('malformed containers and records are errors, never invented empty results', async () => {
-    const fetchMock = upstream();
-    for (const body of [null, [], {}, { data: [] }, { response: {} }, { response: null },
-      { response: [null] }, { response: [[]] }, { response: [{}] },
-      { response: [{ request: { api_key: ENV.AIRLABS_API_KEY } }] },
-      { response: [{ name: { nested: 'unsafe' } }] }]) {
-      fetchMock.mockImplementation(() => Response.json(body));
-      await expectError(await run('/api/airports'), 502, 'UPSTREAM_UNAVAILABLE');
-    }
-    for (const body of [{ response: [] }, { response: {} }, { response: 'not-found' }]) {
-      fetchMock.mockImplementation(() => Response.json(body));
-      await expectError(await run('/api/flight?flight_iata=AA6'), 502, 'UPSTREAM_UNAVAILABLE');
-    }
-    fetchMock.mockImplementation(() => new Response('<html>unsafe-provider-message</html>'));
-    await expectError(await run('/api/airports'), 502, 'UPSTREAM_UNAVAILABLE');
+  test('deferred airports never contact providers or enter cache; errors remain uncached', async () => {
+    const records = cacheStore(); const { run, calls } = upstream(() => response({}, 500));
+    expect((await run('/api/airports')).status).toBe(503); expect(calls).toHaveLength(0);
+    await run(); await run(); expect(calls).toHaveLength(3); expect(records.size).toBe(0);
+  });
+  test('browser client consumes the Worker through an injectable Axios adapter', async () => {
+    const { bindings } = upstream();
+    const client = createApiClient({ baseURL: 'https://proxy.test', adapter: async (config) => {
+      const result = await worker.fetch(new Request(config.url, { headers }), bindings);
+      return response(await result.json(), result.status, Object.fromEntries(result.headers));
+    } });
+    expect((await client.getFlight({ icao24: 'ABC123' })).data.icao24).toBe('abc123');
+    await expect(client.getAirports()).rejects.toMatchObject({ code: 'CONFIGURATION', status: 503 });
   });
 });
-
-describe('upstream errors and resource cleanup', () => {
-  test('maps quota/configuration JSON errors even when HTTP status is 200', async () => {
-    const fetchMock = upstream();
-    for (const [codes, status, expected] of [
-      [['minute_limit_exceeded', 'hour_limit_exceeded', 'month_limit_exceeded'], 429, 'QUOTA_EXCEEDED'],
-      [['unknown_api_key', 'expired_api_key', 'unknown_method', 'access_denied', 'unsupported_plan'], 503, 'CONFIGURATION_ERROR'],
-      [['wrong_params', 'internal_error', 'unknown'], 502, 'UPSTREAM_UNAVAILABLE'],
-    ]) {
-      for (const code of codes) {
-        fetchMock.mockImplementation(() => Response.json({ error: { code, message: 'unsafe-provider-message' }, response: [] }));
-        await expectError(await run('/api/airports'), status, expected);
-      }
+describe('OAuth lifecycle and sequence deadline', () => {
+  test('reuses tokens, deduplicates acquisition, renews at margin and protects newer tokens', async () => {
+    let now = 0, count = 0;
+    const http = axios.create({ adapter: async () => response({ access_token: `token${++count}`, expires_in: 60 }) });
+    const manager = createTokenManager(http, () => now), bindings = env(), signal = new AbortController().signal;
+    expect(await Promise.all([manager.get(bindings, signal), manager.get(bindings, signal)])).toEqual(['token1', 'token1']);
+    now = 29999; expect(await manager.get(bindings, signal)).toBe('token1');
+    now = 30000; expect(await manager.get(bindings, signal)).toBe('token2');
+    manager.invalidate('token1'); expect(await manager.get(bindings, signal)).toBe('token2');
+    manager.invalidate('token2'); expect(await manager.get(bindings, signal)).toBe('token3');
+    expect(count).toBe(3);
+  });
+  test('401 refresh/replay is bounded and rejected credentials are safe', async () => {
+    for (const always401 of [false, true]) {
+      let auth = 0, data = 0;
+      const http = axios.create({ adapter: async (config) => config.method === 'post' ?
+        response({ access_token: `token${++auth}`, expires_in: 1800 }) : response(payload(), ++data === 1 || always401 ? 401 : 200) });
+      const result = await fetchOpenSky(ROUTES['/api/flight'], new URLSearchParams({ icao24: 'abc123' }), env(), { http, tokenManager: createTokenManager(http) });
+      expect(result.status).toBe(always401 ? 503 : 200); expect(auth).toBe(2); expect(data).toBe(2);
     }
-    for (const error of [null, {}, 'bad']) {
-      fetchMock.mockImplementation(() => Response.json({ error, response: [] }));
-      await expectError(await run('/api/airports'), 502, 'UPSTREAM_UNAVAILABLE');
+    for (const result of [response({ error: 'secret' }, 401), response({}, 200), response({}, 302)]) {
+      const http = axios.create({ adapter: async () => result });
+      const safe = await fetchOpenSky(ROUTES['/api/flight'], new URLSearchParams({ icao24: 'abc123' }), env(), { http, tokenManager: createTokenManager(http) });
+      expect(safe.status).toBe(503); expect(await safe.text()).not.toContain('secret');
     }
   });
-
-  test('HTTP failures never become empty success, including unexplained 404', async () => {
-    const fetchMock = upstream();
-    for (const [status, expected, code] of [[401, 503, 'CONFIGURATION_ERROR'], [403, 503, 'CONFIGURATION_ERROR'],
-      [429, 429, 'QUOTA_EXCEEDED'], [408, 504, 'UPSTREAM_TIMEOUT'], [504, 504, 'UPSTREAM_TIMEOUT'],
-      [404, 502, 'UPSTREAM_UNAVAILABLE'], [500, 502, 'UPSTREAM_UNAVAILABLE'], [502, 502, 'UPSTREAM_UNAVAILABLE']]) {
-      fetchMock.mockImplementation(() => new Response('unsafe-provider-message', { status }));
-      await expectError(await run('/api/flight?flight_iata=AA6'), expected, code);
-    }
-    fetchMock.mockImplementation(() => Response.json({ error: { code: 'not_found' } }));
-    await expectError(await run('/api/airports'), 502, 'UPSTREAM_UNAVAILABLE');
+  test('concurrent rejected tokens share a renewal', async () => {
+    let auth = 0;
+    const http = axios.create({ adapter: async (config) => config.method === 'post' ? response({ access_token: `token${++auth}`, expires_in: 1800 }) :
+      response(payload(), config.headers.get('Authorization') === 'Bearer token1' ? 401 : 200) });
+    const manager = createTokenManager(http);
+    const options = { http, tokenManager: manager };
+    const results = await Promise.all([1, 2, 3].map(() => fetchOpenSky(ROUTES['/api/flight'], new URLSearchParams({ icao24: 'abc123' }), env(), options)));
+    expect(results.map((result) => result.status)).toEqual([200, 200, 200]); expect(auth).toBe(2);
   });
-
-  test('preserves valid Retry-After without a retry loop and strips invalid values', async () => {
-    const fetchMock = upstream();
-    for (const value of ['60', new Date(Date.now() + 60000).toUTCString()]) {
-      fetchMock.mockImplementation(() => new Response(null, { status: 429, headers: { 'Retry-After': value } }));
-      const response = await run('/api/airports');
-      expect(response.headers.get('Retry-After')).toBe(value);
-      await expectError(response, 429, 'QUOTA_EXCEEDED');
-    }
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    for (const value of ['', '-1', '1.5', 'invalid', '999999999999999999999999']) {
-      fetchMock.mockImplementation(() => new Response(null, { status: 429, headers: { 'Retry-After': value } }));
-      expect((await run('/api/airports')).headers.get('Retry-After')).toBeNull();
+  test('one deadline bounds auth, shared waits, data and replay without exposing errors', async () => {
+    for (const stage of ['auth', 'data', 'replay']) {
+      let data = 0;
+      const http = axios.create({ adapter: async (config) => {
+        if ((config.method === 'post' && stage === 'auth') || (config.method === 'get' && (stage === 'data' || ++data > 1))) return new Promise(() => {});
+        return config.method === 'post' ? response({ access_token: `token${data}`, expires_in: 1800 }) : response({}, 401);
+      } });
+      const result = await fetchOpenSky(ROUTES['/api/flight'], new URLSearchParams({ icao24: 'abc123' }), env(), { http, tokenManager: createTokenManager(http), timeoutMs: 5 });
+      expect(result.status).toBe(504);
     }
   });
-
-  test('rejects redirects and sanitizes network failures without logging them', async () => {
-    const log = spyOn(console, 'log').mockImplementation(() => {});
-    const error = spyOn(console, 'error').mockImplementation(() => {});
-    const fetchMock = upstream();
-    for (const status of [301, 302, 303, 307, 308]) {
-      fetchMock.mockImplementation(() => new Response(null, { status, headers: { Location: 'https://example.com' } }));
-      await expectError(await run('/api/airports'), 502, 'UPSTREAM_UNAVAILABLE');
-    }
-    expect(fetchMock).toHaveBeenCalledTimes(5);
-    expect(fetchMock.mock.calls[0][1].redirect).toBe('manual');
-    fetchMock.mockImplementation(() => { throw new Error(`unsafe-provider-message/${ENV.AIRLABS_API_KEY}`); });
-    await expectError(await run('/api/airports'), 502, 'UPSTREAM_UNAVAILABLE');
-    expect(log).not.toHaveBeenCalled();
-    expect(error).not.toHaveBeenCalled();
-  });
-
-  test('times out Fetch and response-body reading at 10 seconds and clears timers', async () => {
-    const realTimeout = globalThis.setTimeout;
-    const timer = spyOn(globalThis, 'setTimeout').mockImplementation((callback, delay) => {
-      expect(delay).toBe(10000);
-      return realTimeout(callback, 5);
-    });
-    const clear = spyOn(globalThis, 'clearTimeout');
-    const fetchMock = upstream((url, { signal }) => new Promise((resolve, reject) => {
-      signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
-    }));
-    await expectError(await run('/api/airports'), 504, 'UPSTREAM_TIMEOUT');
-    expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
-    fetchMock.mockImplementation((url, { signal }) => Promise.resolve({
-      status: 200, ok: true, headers: new Headers(),
-      json: () => new Promise((resolve, reject) => signal.addEventListener('abort',
-        () => reject(new DOMException('aborted', 'AbortError')), { once: true })),
-    }));
-    await expectError(await run('/api/airports'), 504, 'UPSTREAM_TIMEOUT');
-    fetchMock.mockImplementation(() => json([]));
-    expect((await run('/api/airports')).status).toBe(200);
-    expect(timer).toHaveBeenCalledTimes(3);
-    expect(clear).toHaveBeenCalledTimes(3);
-  });
-
-  test('existing browser client consumes Worker envelopes and safe errors', async () => {
-    const fetchMock = upstream(() => json({ flight_iata: 'AA6', alt: 0 }));
-    const client = createApiClient({ baseURL: 'http://localhost:8787',
-      fetch: (url, init) => worker.fetch(new Request(url, init), ENV) });
-    expect((await client.getFlight({ flight_iata: 'AA6' })).data).toEqual({ flight_iata: 'AA6', alt: 0 });
-    fetchMock.mockImplementation(() => Response.json({ error: { code: 'month_limit_exceeded' } },
-      { headers: { 'Retry-After': '60' } }));
-    await expect(client.getAirports()).rejects.toMatchObject({ code: 'QUOTA', status: 429, retryAt: expect.any(Number) });
+  test('real Fetch adapter preserves manual redirect and abort behavior', async () => {
+    const server = Bun.serve({ port: 0, fetch(request) {
+      if (new URL(request.url).pathname === '/redirect') return new Response(null, { status: 302, headers: { Location: '/target' } });
+      return new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('{')); } }));
+    } });
+    try {
+      const url = `http://localhost:${server.port}`;
+      expect((await transport.get(`${url}/redirect`)).status).toBe(302);
+      await expect(transport.get(`${url}/body`, { signal: AbortSignal.timeout(20) })).rejects.toThrow();
+    } finally { server.stop(true); }
   });
 });

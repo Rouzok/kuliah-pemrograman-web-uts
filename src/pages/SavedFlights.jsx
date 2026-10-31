@@ -22,7 +22,6 @@ export default function SavedFlights() {
       }
       setSavedFlights(data);
     } catch (err) {
-      console.error("Error loading flights:", err);
       setError("Gagal memuat data. Penyimpanan lokal mungkin bermasalah.");
     } finally {
       setIsLoading(false);
@@ -43,7 +42,7 @@ export default function SavedFlights() {
       setOpenError(null);
       navigate('/map', { state: { openSavedFlight } });
     } catch {
-      setOpenError('Identitas penerbangan ini belum memiliki kode dan jenis IATA/ICAO yang valid. Simpan ulang dari data penerbangan. Bookmark tetap tersimpan.');
+      setOpenError('Bookmark lama memakai nomor penerbangan. Simpan ulang pesawat dari data OpenSky dengan ICAO24. Bookmark tetap tersimpan dan dapat dihapus.');
     }
   };
 
@@ -94,10 +93,11 @@ export default function SavedFlights() {
           <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-slate-600 mb-4" viewBox="0 0 256 256">
             <path d="M184,32H72A16,16,0,0,0,56,48V224a8,8,0,0,0,12.24,6.78L128,193.43l59.76,37.35A8,8,0,0,0,200,224V48A16,16,0,0,0,184,32Z" />
           </svg>
-          <h3 className="text-lg font-medium text-slate-300">Belum ada penerbangan</h3>
+          <h3 className="text-lg font-medium text-slate-300">Belum ada pesawat tersimpan</h3>
           <p className="text-sm text-slate-500 mt-2 max-w-[200px]">
-            Penerbangan yang kamu simpan dari peta akan muncul di sini.
+            Pesawat yang kamu simpan dari peta akan muncul di sini.
           </p>
+          <button onClick={() => navigate('/map')} className="mt-4 rounded-md px-3 py-2 text-teal-300 focus-visible:outline-2">Live Map</button>
         </div>
       )}
     </div>
