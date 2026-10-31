@@ -1,18 +1,18 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, NavLink, Outlet } from 'react-router-dom';
 
 export default function CompanyProfile() {
   return (
-    <div className="flex flex-col items-center justify-center h-screen bg-slate-900 text-white">
-      <h1 className="text-3xl font-bold mb-4">Halaman Company Profile</h1>
-      
-      {/* Gunakan Link dari react-router-dom alih-alih tag <a> agar pindah halaman tidak loading ulang */}
-      <Link 
-        to="/map" 
-        className="rounded bg-teal-500 px-4 py-2 text-slate-900 font-semibold hover:bg-teal-400 transition"
-      >
-        Buka Aplikasi Map
-      </Link>
+    <div className="min-h-screen bg-slate-900 text-white">
+      <nav aria-label="Company profile" className="flex flex-wrap items-center gap-4 p-6 [&_a]:inline-flex [&_a]:min-h-11 [&_a]:items-center [&_a]:rounded [&_a]:px-3 [&_a:focus-visible]:outline-2 [&_a:focus-visible]:outline-cyan-300 [&_a[aria-current=page]]:underline">
+        <NavLink to="/" end>Home</NavLink>
+        <NavLink to="/about">About Us</NavLink>
+        <NavLink to="/contact">Contact Us</NavLink>
+        <Link to="/map" className="bg-teal-500 font-semibold text-slate-900 hover:bg-teal-400">Live Map</Link>
+      </nav>
+      <main className="p-6">
+        <Outlet />
+      </main>
     </div>
   );
 }
