@@ -1,13 +1,9 @@
-// Validate on the Worker even when the browser client has already validated.
 export function validateQuery(searchParams, route) {
   const params = new URLSearchParams();
   for (const [key, value] of searchParams) {
-    if (!route.params.includes(key) || params.has(key)) {
-      throw 400;
-    }
+    if (!route.params.includes(key) || params.has(key)) throw 400;
     params.set(key, value);
   }
-
   if (route.endpoint === 'flights') {
     const parts = params.get('bbox')?.split(',');
     if (!parts || parts.length !== 4 || parts.some((part) => !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(part.trim()))) {

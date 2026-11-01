@@ -2,7 +2,7 @@
 
 A college-project React flight tracker with a separate Cloudflare Worker. OpenSky provides reported aircraft states; bookmarks identify aircraft by ICAO24 and persist locally. No user account or database is required.
 
-Company profile (`/`), tracker navigation (`/map`, `/map/airports`, `/map/saved`), Saved Aircraft Open/Remove and a detail placeholder exist. The client/Worker use Axios with its Fetch adapter, authenticated OpenSky state requests, exact-origin CORS, IP rate limiting and 30-second sanitized-response caching. Full map/table integration and the visible-page 30-second update loop are future work. AirportsAPI is the future airport provider; `/api/airports` currently returns controlled uncached 503.
+Company profile (`/`), tracker navigation (`/map`, `/map/airports`, `/map/saved`), Saved Aircraft Open/Remove and a detail placeholder exist. The company globe displays up to eight reported OpenSky aircraft with accessible details and eligible 30-second updates. The client/Worker use Axios with its Fetch adapter, authenticated OpenSky state requests, exact-origin CORS, IP rate limiting and 30-second sanitized-response caching. Full Live Map/table integration and its update loop remain future work. AirportsAPI is the future airport provider; `/api/airports` currently returns controlled uncached 503.
 
 ## Local setup
 
@@ -45,6 +45,8 @@ Saved Aircraft uses `{ id: 'icao24:abc123', code: 'abc123', identifierType: 'ica
 
 ## Worker operation and limits
 
+The company globe starts over Indonesia and rotates once every six minutes unless paused, focused, hovered or selected. Reduced motion disables rotation and position tweening. It requests conservative facing-region bounds only while visible, online and active, splitting antimeridian bounds into two requests when needed. Received positions interpolate for five seconds and then hold. Failures retain stale observations and stop automatic updates until explicit Retry, respecting Retry-After. The schematic geography and demo airport spotlight are illustrative; aircraft are provider observations, with no invented routes or fallback sample flights. Broad views may cost up to eight credits per update when split. The browser and Worker each reuse valid 30-second cache entries without changing timestamps.
+
 `proxy/src/index.js` exports `handleRequest` and the default Worker handler; validation and safe envelopes are separate. `opensky.js` fixes the state destination; `oauth.js` owns the Axios instance and isolate token lifecycle. Tokens come from OpenSky's fixed OAuth client-credentials URL, expire according to expires_in, renew on demand with a 30-second margin and share concurrent acquisition within an isolate. One rejected bearer token can refresh/replay once; the entire auth/data/replay sequence has a 10-second deadline. Manual redirects are explicitly rejected, browser auth/cookies are never forwarded, and errors expose no raw Axios/provider data.
 
 `ALLOWED_ORIGINS` in `proxy/wrangler.jsonc` contains exact local dev/preview origins. Allowed-origin success and errors include CORS and expose Retry-After; GET preflights allow Accept/Content-Type locally. No-Origin callers are allowed; disallowed origins get 403. No credentialed CORS. This public proxy is callable outside browsers.
@@ -63,6 +65,7 @@ Future airport work uses [AirportsAPI](https://airportsapi.com/docs/api#/) throu
 pnpm install --frozen-lockfile
 pnpm test:api
 pnpm test:proxy
+pnpm test:globe
 pnpm build
 node node_modules/wrangler/bin/wrangler.js deploy --dry-run --config proxy/wrangler.jsonc
 ```
