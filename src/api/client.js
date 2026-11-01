@@ -64,7 +64,7 @@ export function createApiClient({ baseURL, adapter = 'fetch', now = () => Date.n
       return body;
     } catch (error) {
       if (error instanceof ApiError) throw error;
-      throw new ApiError(controller.signal.aborted ? 'TIMEOUT' : 'NETWORK');
+      throw new ApiError(controller.signal.aborted || ['ETIMEDOUT', 'ECONNABORTED'].includes(error.code) ? 'TIMEOUT' : 'NETWORK');
     } finally {
       clearTimeout(timer);
     }

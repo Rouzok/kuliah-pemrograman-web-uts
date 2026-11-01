@@ -1,0 +1,72 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: Inter, Arial, sans-serif;
+  --font-display: 'Space Grotesk', sans-serif;
+
+  /* Company palette: namespaced so the tracker keeps its own theme. */
+  --color-company-bg: #070b14;
+  --color-company-surface: #111c2e;
+  --color-company-globe: #07101b;
+  --color-company-text: #f3f7fc;
+  --color-company-muted: #a7b6ca;
+  --color-company-accent: #5ce1e6;
+  --color-company-accent-hover: #a1f4f2;
+  --color-company-nav-hover: #a5f4f6;
+  --color-company-button-ink: #071219;
+  --color-company-control-text: #bff8f4;
+  --color-company-detail-text: #d9f7f5;
+
+  /* Small editorial labels complement Tailwind's existing text scale. */
+  --text-company-micro: 0.5rem;
+  --text-company-meta: 0.5625rem;
+  --text-company-label: 0.625rem;
+  --text-company-caption: 0.6875rem;
+  --text-company-nav: 0.8125rem;
+  --text-company-body: 0.9375rem;
+  --text-company-arrow: 1.375rem;
+  --text-company-heading: clamp(42px, 4.5vw, 68px);
+  --text-company-heading-mobile: clamp(38px, 10vw, 54px);
+  --text-company-heading-compact: clamp(42px, 4vw, 56px);
+  --text-company-hero: clamp(54px, 6.2vw, 96px);
+  --text-company-hero-mobile: clamp(48px, 13vw, 72px);
+  --text-company-hero-compact: clamp(56px, 5.5vw, 76px);
+  --leading-company-heading: 1.08;
+  --leading-company-hero: 1.04;
+  --leading-company-body: 1.85;
+  --leading-company-body-compact: 1.65;
+  --leading-company-note: 1.7;
+  --tracking-company-heading: -0.055em;
+  --tracking-company-hero: -0.065em;
+  --tracking-company-eyebrow: 0.2em;
+  --tracking-company-caption: 0.15em;
+
+  --container-company-panel: 650px;
+  --container-company-story: 530px;
+  --container-company-copy: 390px;
+  --container-company-card: 350px;
+  --container-company-mission: 430px;
+  --radius-company-control: 3px;
+  --shadow-company-indicator: 0 0 12px #5ce1e655;
+  --shadow-company-globe: 0 0 70px #5ce1e60b, inset -40px -20px 80px #03060c;
+}
+
+/* Percentage gutters are shared layout values, not global spacing units. */
+:root {
+  --company-gutter: 6%;
+  --company-section-gutter: 8%;
+  --company-header-gutter: clamp(20px, 4vw, 72px);
+  --company-footer-gutter: clamp(24px, 6vw, 96px);
+}
+
+/* Decorative compositions stay in CSS; content/layout still use utilities. */
+@layer components {
+  .company-globe-poster {
+    background-image: radial-gradient(circle at 30% 25%, #133343, var(--color-company-globe) 65%);
+  }
+
+  .company-closing {
+    background-image: radial-gradient(ellipse at 80% 120%, #17333c 0, transparent 60%);
+  }
+}
