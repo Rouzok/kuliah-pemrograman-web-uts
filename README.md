@@ -61,6 +61,18 @@ Future airport work uses [AirportsAPI](https://airportsapi.com/docs/api#/) throu
 
 ## Verification and deployment
 
+### Frontend preview on GitHub Pages
+
+`.github/workflows/pages.yml` installs the pinned pnpm/Bun versions, runs all three test scripts, and builds the frontend on pushes and pull requests. Only successful pushes to `main` (or manual workflow runs on `main`) publish `dist/` through the `github-pages` environment. The Worker is tested with local adapters but is never deployed by this workflow.
+
+In the repository's **Settings → Pages → Build and deployment**, select **GitHub Actions** as the source. Merge this workflow into `main`, or run **Frontend CI and GitHub Pages** manually on `main`. The project URL is `https://rouzok.github.io/kuliah-pemrograman-web-uts/`.
+
+The workflow builds with the repository name as Vite's base path; React Router uses that same prefix. `scripts/prepare-pages.mjs` copies the built entry page into each existing route directory, so direct visits and reloads work for `/about/`, `/contact/`, `/map/`, `/map/airports/`, and `/map/saved/` under the project URL. Pages may redirect directory URLs to include a trailing slash. Add new routes to that script when extending the app.
+
+This is a frontend-only preview: `VITE_API_BASE_URL` is explicitly empty in the workflow. No localhost API calls or provider requests are made without a valid proxy origin; aircraft data remains unavailable while the API is unfinished. No OpenSky or Cloudflare secrets are needed. To connect the API later, deploy the Worker separately, allow the exact Pages origin in its CORS settings, and rebuild with its public HTTPS origin. Custom domains require adjusting the workflow's base path to `/`.
+
+### Local verification and separate Worker deployment
+
 ```sh
 pnpm install --frozen-lockfile
 pnpm test:api

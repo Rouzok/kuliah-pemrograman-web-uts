@@ -1,0 +1,72 @@
+name: Frontend CI and GitHub Pages
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: pnpm/action-setup@v6
+        with:
+          cache: true
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Test browser API client
+        run: pnpm test:api
+      - name: Test globe
+        run: pnpm test:globe
+      - name: Test Worker contracts locally
+        run: pnpm test:proxy
+      - name: Build frontend for the repository Pages URL
+        env:
+          VITE_API_BASE_URL: ''
+          PAGES_BASE_PATH: /${{ github.event.repository.name }}/
+        run: pnpm build --base "$PAGES_BASE_PATH"
+      - name: Prepare direct route entry pages
+        run: node scripts/prepare-pages.mjs
+      - name: Upload dist for Pages
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Publish frontend
+        id: deployment
+        uses: actions/deploy-pages@v4

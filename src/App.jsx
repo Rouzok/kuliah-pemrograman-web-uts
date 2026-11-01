@@ -13,7 +13,7 @@ const Home = lazy(() => import('./pages/Home'));
 
 export default function App() {
   return (
-    <Router>
+    <Router basename={import.meta.env.BASE_URL}>
       <Routes>
         {/* Halaman Landing / Company Profile */}
         <Route path="/" element={<CompanyProfileLayout />}>
