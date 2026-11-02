@@ -15,7 +15,7 @@
     "test:api": "bun test src/api",
     "test:globe": "bun test src/components/company",
     "test:proxy": "bun test proxy/src",
-    "proxy:dev": "bun run --bun wrangler dev --config proxy/wrangler.jsonc",
+    "proxy:dev": "node node_modules/wrangler/bin/wrangler.js dev --config proxy/wrangler.jsonc",
     "proxy:deploy": "bun run --bun wrangler deploy --config proxy/wrangler.jsonc",
     "proxy:secret": "bun run --bun wrangler secret put --config proxy/wrangler.jsonc"
   },
