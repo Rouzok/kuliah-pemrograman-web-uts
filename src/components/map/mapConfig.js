@@ -19,35 +19,11 @@ export const INDONESIA_BBOX = [-10, 95, 6, 141];
  * Each provider includes proper legal attribution.
  */
 export const TILE_PROVIDERS = {
-  // Primary / Default: CARTO Dark Matter (Dark palette matching skytrace theme)
+  // Primary / Default: CARTO Dark Matter (Vector style without raster API-key watermark)
   cartoDark: {
     name: 'CARTO Dark Matter',
     attribution: '© OpenStreetMap contributors © CARTO',
-    style: {
-      version: 8,
-      sources: {
-        'carto-dark': {
-          type: 'raster',
-          tiles: [
-            'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-            'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-            'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-            'https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-          ],
-          tileSize: 256,
-          attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions" target="_blank" rel="noopener noreferrer">CARTO</a>',
-        },
-      },
-      layers: [
-        {
-          id: 'carto-dark-layer',
-          type: 'raster',
-          source: 'carto-dark',
-          minzoom: 0,
-          maxzoom: 19,
-        },
-      ],
-    },
+    style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
   },
 
   // Alternative 1: OpenStreetMap Standard Raster
