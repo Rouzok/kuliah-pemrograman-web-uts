@@ -9,34 +9,45 @@ import {
   formatAttribution,
   isWebGLSupported,
 } from './mapConfig.js';
+import {
+  canCreateMarker,
+  getAircraftHeading,
+  createAirplaneMarkerElement,
+} from './markerUtils.js';
 
 /**
  * FlightMap Component (MapLibre GL 5)
  *
  * Requirements fulfilled:
- * - F-02: Starts around Indonesia, valid coordinates, pan/zoom, visible attribution
- * - NF-01: Uses maplibre-gl with standard React hooks
- * - NF-08: Permitted tiles with visible legal attribution
- * - NF-11: WebGL detection & error recovery banner ensuring list/sidebar remains usable
+ * - F-02: Starts around Indonesia, valid coordinates, pan/zoom, visible attribution,
+ *   markers with true_track heading rotation, no invalid markers for missing coordinates.
+ * - F-06: Click marker to select aircraft.
+ * - NF-01: Uses maplibre-gl with standard React hooks.
+ * - NF-08: Permitted tiles with visible legal attribution.
+ * - NF-11: WebGL detection & error recovery banner ensuring list/sidebar remains usable.
  */
 export default function FlightMap({
   initialCenter = INDONESIA_CENTER,
   initialZoom = INDONESIA_ZOOM,
   style = DEFAULT_STYLE.style,
+  flights = [],
+  selectedIcao24 = null,
+  onSelectFlight,
   onMapReady,
   onMoveEnd,
   className = 'h-full w-full',
 }) {
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
+  const markersRef = useRef(new Map()); // Key: icao24 -> { marker, isSelected }
 
   const [mapError, setMapError] = useState(null);
   const [isSupported, setIsSupported] = useState(true);
   const [isMapReady, setIsMapReady] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
 
+  // Initialize MapLibre
   useEffect(() => {
-    // 1. Check WebGL support (graceful degradation per NF-11)
     if (!isWebGLSupported()) {
       setIsSupported(false);
       setMapError({
@@ -57,10 +68,9 @@ export default function FlightMap({
         style: style,
         center: initialCenter,
         zoom: initialZoom,
-        attributionControl: false, // Custom attribution added below
+        attributionControl: false,
       });
 
-      // Add navigation controls (zoom, compass)
       map.addControl(
         new maplibregl.NavigationControl({
           showCompass: true,
@@ -70,7 +80,6 @@ export default function FlightMap({
         'top-right'
       );
 
-      // Add legal attribution control (bottom-right)
       map.addControl(
         new maplibregl.AttributionControl({
           compact: true,
@@ -94,7 +103,6 @@ export default function FlightMap({
       }
 
       map.on('error', (event) => {
-        // Only treat fatal WebGL context losses or 401 style errors as blocking
         if (event?.error?.message?.includes('WebGL') || event?.status === 401) {
           setMapError({
             type: 'MAP_ERROR',
@@ -105,7 +113,6 @@ export default function FlightMap({
 
       mapInstanceRef.current = map;
 
-      // Automatically resize map when sidebar toggles or viewport dimensions change
       resizeObserver = new ResizeObserver(() => {
         if (map && !map._removed) {
           map.resize();
@@ -124,6 +131,12 @@ export default function FlightMap({
       if (resizeObserver) {
         resizeObserver.disconnect();
       }
+      // Remove all markers
+      for (const entry of markersRef.current.values()) {
+        entry.marker.remove();
+      }
+      markersRef.current.clear();
+
       if (map) {
         map.remove();
         mapInstanceRef.current = null;
@@ -131,6 +144,65 @@ export default function FlightMap({
       }
     };
   }, [retryCount, style, initialCenter, initialZoom, onMapReady, onMoveEnd]);
+
+  // Synchronize aircraft markers whenever flights data or selection changes
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !isMapReady) return;
+
+    const currentMarkers = markersRef.current;
+    const incomingValid = flights.filter(canCreateMarker);
+    const incomingIcaos = new Set(incomingValid.map((f) => f.icao24));
+
+    // 1. Remove markers that are no longer in the active flights list
+    for (const [icao24, entry] of currentMarkers.entries()) {
+      if (!incomingIcaos.has(icao24)) {
+        entry.marker.remove();
+        currentMarkers.delete(icao24);
+      }
+    }
+
+    // 2. Add or update active aircraft markers
+    for (const aircraft of incomingValid) {
+      const icao24 = aircraft.icao24;
+      const heading = getAircraftHeading(aircraft);
+      const isSelected = icao24 === selectedIcao24;
+      const existing = currentMarkers.get(icao24);
+
+      if (existing) {
+        // Update coordinates and heading
+        existing.marker.setLngLat([aircraft.longitude, aircraft.latitude]);
+        existing.marker.setRotation(heading);
+
+        // If selection state changed, rebuild marker element to show active ring
+        if (existing.isSelected !== isSelected) {
+          existing.marker.remove();
+          const el = createAirplaneMarkerElement(aircraft, isSelected, onSelectFlight);
+          const newMarker = new maplibregl.Marker({
+            element: el,
+            rotation: heading,
+            rotationAlignment: 'map',
+          })
+            .setLngLat([aircraft.longitude, aircraft.latitude])
+            .addTo(map);
+
+          currentMarkers.set(icao24, { marker: newMarker, isSelected });
+        }
+      } else {
+        // Create new marker
+        const el = createAirplaneMarkerElement(aircraft, isSelected, onSelectFlight);
+        const marker = new maplibregl.Marker({
+          element: el,
+          rotation: heading,
+          rotationAlignment: 'map',
+        })
+          .setLngLat([aircraft.longitude, aircraft.latitude])
+          .addTo(map);
+
+        currentMarkers.set(icao24, { marker, isSelected });
+      }
+    }
+  }, [flights, selectedIcao24, isMapReady, onSelectFlight]);
 
   const handleRetry = () => {
     setMapError(null);

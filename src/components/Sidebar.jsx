@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 
-export default function Sidebar() {
+export default function Sidebar({ outletContext } = {}) {
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(true);
 
@@ -83,7 +83,7 @@ export default function Sidebar() {
 
         {/* Konten Dinamis */}
         <div className="flex-1 overflow-y-auto p-4">
-          <Outlet />
+          <Outlet context={outletContext} />
         </div>
       </aside>
     </>
