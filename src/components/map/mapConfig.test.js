@@ -7,6 +7,7 @@ import {
   DEFAULT_STYLE,
   isValidCoordinate,
   formatAttribution,
+  isWebGLSupported,
 } from './mapConfig.js';
 
 describe('Map configuration for Task-02', () => {
@@ -74,5 +75,9 @@ describe('Map configuration for Task-02', () => {
     expect(formatAttribution(TILE_PROVIDERS.cartoDark)).toContain('CARTO');
     expect(formatAttribution()).toContain('OpenStreetMap');
   });
-});
 
+  test('isWebGLSupported returns boolean without throwing', () => {
+    const supported = isWebGLSupported();
+    expect(typeof supported).toBe('boolean');
+  });
+});

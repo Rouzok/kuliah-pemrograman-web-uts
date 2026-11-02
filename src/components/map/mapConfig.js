@@ -116,3 +116,23 @@ export function formatAttribution(provider = DEFAULT_STYLE) {
   return provider?.attribution || '© OpenStreetMap contributors';
 }
 
+/**
+ * Checks whether WebGL is supported in the current browser environment.
+ * Standard cross-browser fallback check for NF-11.
+ *
+ * @returns {boolean}
+ */
+export function isWebGLSupported() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return false;
+  }
+  try {
+    const canvas = document.createElement('canvas');
+    return Boolean(
+      window.WebGLRenderingContext &&
+        (canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl'))
+    );
+  } catch {
+    return false;
+  }
+}

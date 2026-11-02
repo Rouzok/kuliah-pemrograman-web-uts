@@ -7,6 +7,7 @@ import {
   INDONESIA_ZOOM,
   DEFAULT_STYLE,
   formatAttribution,
+  isWebGLSupported,
 } from './mapConfig.js';
 
 /**
@@ -36,7 +37,7 @@ export default function FlightMap({
 
   useEffect(() => {
     // 1. Check WebGL support (graceful degradation per NF-11)
-    if (!maplibregl.supported()) {
+    if (!isWebGLSupported()) {
       setIsSupported(false);
       setMapError({
         type: 'WEBGL_UNSUPPORTED',
@@ -48,6 +49,8 @@ export default function FlightMap({
     if (!mapContainerRef.current) return;
 
     let map = null;
+    let resizeObserver = null;
+
     try {
       map = new maplibregl.Map({
         container: mapContainerRef.current,
@@ -91,7 +94,7 @@ export default function FlightMap({
       }
 
       map.on('error', (event) => {
-        // Only treat fatal WebGL context losses or style loading failures as blocking
+        // Only treat fatal WebGL context losses or 401 style errors as blocking
         if (event?.error?.message?.includes('WebGL') || event?.status === 401) {
           setMapError({
             type: 'MAP_ERROR',
@@ -101,6 +104,15 @@ export default function FlightMap({
       });
 
       mapInstanceRef.current = map;
+
+      // Automatically resize map when sidebar toggles or viewport dimensions change
+      resizeObserver = new ResizeObserver(() => {
+        if (map && !map._removed) {
+          map.resize();
+        }
+      });
+
+      resizeObserver.observe(mapContainerRef.current);
     } catch (err) {
       setMapError({
         type: 'INIT_ERROR',
@@ -108,19 +120,10 @@ export default function FlightMap({
       });
     }
 
-    // Automatically resize map when sidebar toggles or viewport dimensions change
-    const resizeObserver = new ResizeObserver(() => {
-      if (map && !map._removed) {
-        map.resize();
-      }
-    });
-
-    if (mapContainerRef.current) {
-      resizeObserver.observe(mapContainerRef.current);
-    }
-
     return () => {
-      resizeObserver.disconnect();
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
       if (map) {
         map.remove();
         mapInstanceRef.current = null;
@@ -158,7 +161,7 @@ export default function FlightMap({
         >
           <div className="flex items-center justify-center gap-2 text-sm font-semibold text-red-400">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 256 256">
-              <path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm-8-80V80a8,8,0,0,1,16,0v56a8,8,0,0,1-16,0Zm20,36a12,12,0,1,1-12-12A12,12,0,0,1,140,172Z" />
+              <path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm-8-80V80a88,88,0,1,1,16,0v56a8,8,0,0,1-16,0Zm20,36a12,12,0,1,1-12-12A12,12,0,0,1,140,172Z" />
             </svg>
             Tampilan Peta Terkendala
           </div>
@@ -177,4 +180,3 @@ export default function FlightMap({
     </div>
   );
 }
-
