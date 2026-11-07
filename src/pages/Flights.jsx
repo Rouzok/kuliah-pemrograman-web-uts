@@ -1,14 +1,99 @@
 import { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import { getFlight } from '../api/client.js';
 import { metersToFeet, metersPerSecondToKnots, groundState } from '../utils/aircraft.js';
+import FlightDetailPanel from '../components/map/FlightDetailPanel.jsx';
 
 const buttonClass = 'rounded-md bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300 disabled:cursor-not-allowed disabled:opacity-50';
 
 export default function Flights() {
   const location = useLocation();
+  const outletContext = useOutletContext() || {};
+  const {
+    selectedIcao24,
+    setSelectedIcao24,
+    flights = [],
+    meta,
+    isStale,
+    onSelectFlight,
+  } = outletContext;
+
+  const hasSavedIntent = Boolean(location.state?.openSavedFlight);
+
   // A new navigation gets its own lifecycle, including repeated Open of the same code.
-  return <SavedFlightLookup key={location.key} intent={location.state?.openSavedFlight} />;
+  if (hasSavedIntent) {
+    return <SavedFlightLookup key={location.key} intent={location.state?.openSavedFlight} />;
+  }
+
+  // Task-14: If an aircraft is selected, render the FlightDetailPanel from viewport records
+  if (selectedIcao24) {
+    return (
+      <FlightDetailPanel
+        icao24={selectedIcao24}
+        flights={flights}
+        meta={meta}
+        isStale={isStale}
+        onClose={() => setSelectedIcao24?.(null)}
+      />
+    );
+  }
+
+  // Task-13: When no flight is selected, show list of aircraft in current viewport
+  return (
+    <div className="space-y-3">
+      <div>
+        <h2 className="text-sm font-semibold text-teal-300">Radar Viewport</h2>
+        <p className="text-xs text-slate-400">
+          Pilih pesawat dari daftar di bawah atau klik marker pada peta untuk melihat telemetri.
+        </p>
+      </div>
+
+      {flights.length === 0 ? (
+        <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 text-center text-xs text-slate-400">
+          Belum ada pesawat terdeteksi di area peta saat ini. Geser atau perbesar peta untuk memindai area lain.
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+            <span>{flights.length} Pesawat Aktif</span>
+            <span className="text-[11px] text-slate-500 font-mono">ICAO24 / Callsign</span>
+          </div>
+          <div className="space-y-1 max-h-[calc(100vh-230px)] overflow-y-auto pr-1">
+            {flights.map((flight) => {
+              const callsign = flight.callsign?.trim();
+              const icao = flight.icao24?.toLowerCase();
+              return (
+                <button
+                  key={flight.icao24}
+                  type="button"
+                  onClick={() => {
+                    if (onSelectFlight) {
+                      onSelectFlight(flight);
+                    } else if (setSelectedIcao24) {
+                      setSelectedIcao24(flight.icao24);
+                    }
+                  }}
+                  className="w-full flex items-center justify-between p-2 rounded-lg bg-slate-800/50 hover:bg-slate-800 border border-slate-800/80 hover:border-teal-500/30 text-left transition group"
+                >
+                  <div className="min-w-0 pr-2">
+                    <div className="font-medium text-xs text-slate-200 group-hover:text-teal-300 truncate">
+                      {callsign || icao}
+                    </div>
+                    <div className="text-[11px] text-slate-400 truncate">
+                      {flight.origin_country || 'Asal tidak diketahui'}
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0 font-mono text-[11px] text-slate-400">
+                    {icao}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function SavedFlightLookup({ intent }) {
