@@ -97,7 +97,7 @@ export default function MapLayout() {
             className={`h-2 w-2 rounded-full ${
               isPending
                 ? 'bg-amber-400 animate-pulse'
-                : isStale
+                : error || isStale
                 ? 'bg-red-400'
                 : 'bg-teal-400 animate-pulse'
             }`}
@@ -105,7 +105,11 @@ export default function MapLayout() {
           <span className="font-medium text-slate-200">
             {flights.length} Pesawat
           </span>
-          {isStale && <span className="text-amber-400 font-semibold">(Stale)</span>}
+          {error ? (
+            <span className="text-red-400 font-semibold">(Error)</span>
+          ) : isStale ? (
+            <span className="text-amber-400 font-semibold">(Stale)</span>
+          ) : null}
           <button
             type="button"
             onClick={() => refresh(true)}

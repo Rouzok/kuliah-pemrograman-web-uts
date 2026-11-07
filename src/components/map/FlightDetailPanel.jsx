@@ -27,7 +27,10 @@ export default function FlightDetailPanel({
   icao24,
   flights = [],
   meta = null,
+  isPending = false,
   isStale = false,
+  error = null,
+  onRefresh,
   onClose,
 }) {
   const lastKnownRef = useRef(null);
@@ -149,12 +152,26 @@ export default function FlightDetailPanel({
         </div>
       </div>
 
-      {/* Snapshot / Stale Status Alert */}
-      {(isMissingFromSnapshot || isStale) && (
-        <div role="status" className="rounded-lg bg-amber-500/10 p-2.5 text-xs text-amber-300 border border-amber-500/20">
-          {isMissingFromSnapshot
-            ? 'Pesawat saat ini di luar jangkauan snapshot terbaru. Ringkasan data terakhir tetap ditampilkan.'
-            : 'Data koneksi usang; pembaruan radar otomatis dijeda.'}
+      {/* Snapshot / Stale / Error Status Alert with Retry (F-03, F-15) */}
+      {(isMissingFromSnapshot || isStale || error) && (
+        <div role="status" className="rounded-lg bg-amber-500/10 p-2.5 text-xs text-amber-300 border border-amber-500/20 space-y-1.5">
+          <p>
+            {isMissingFromSnapshot
+              ? 'Pesawat saat ini di luar jangkauan snapshot terbaru. Ringkasan data terakhir tetap ditampilkan.'
+              : error
+              ? `Koneksi radar terganggu (${error.message || 'Error'}). Data terakhir tetap ditampilkan.`
+              : 'Data koneksi usang; pembaruan radar otomatis dijeda.'}
+          </p>
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={isPending}
+              className="rounded bg-amber-500/20 px-2.5 py-1 text-[11px] font-medium text-amber-200 hover:bg-amber-500/30 disabled:opacity-50 transition"
+            >
+              {isPending ? 'Mencoba lagi…' : 'Coba Perbarui Sekarang'}
+            </button>
+          )}
         </div>
       )}
 
