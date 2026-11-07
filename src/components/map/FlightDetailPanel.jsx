@@ -53,9 +53,15 @@ export default function FlightDetailPanel({
     }
   }, [bookmarkId]);
 
-  // Focus close button on mount for accessibility (NF-04)
+  // Focus close button on mount and restore focus on unmount/close (NF-04)
   useEffect(() => {
+    const previousActiveElement = document.activeElement;
     closeButtonRef.current?.focus();
+    return () => {
+      if (previousActiveElement && typeof previousActiveElement.focus === 'function') {
+        previousActiveElement.focus();
+      }
+    };
   }, [icao24]);
 
   const handleToggleBookmark = () => {
@@ -219,3 +225,4 @@ export default function FlightDetailPanel({
     </section>
   );
 }
+
