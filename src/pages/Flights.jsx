@@ -1,14 +1,176 @@
 import { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import { getFlight } from '../api/client.js';
 import { metersToFeet, metersPerSecondToKnots, groundState } from '../utils/aircraft.js';
+import FlightDetailPanel from '../components/map/FlightDetailPanel.jsx';
 
 const buttonClass = 'rounded-md bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300 disabled:cursor-not-allowed disabled:opacity-50';
 
 export default function Flights() {
   const location = useLocation();
+  const outletContext = useOutletContext() || {};
+  const {
+    selectedIcao24,
+    setSelectedIcao24,
+    flights = [],
+    meta,
+    isPending = false,
+    isStale = false,
+    error = null,
+    refresh,
+    onSelectFlight,
+  } = outletContext;
+
+  const [clock, setClock] = useState(() => Date.now());
+
+  // Cooldown timer if error has retryAt (F-15)
+  useEffect(() => {
+    const retryAt = error?.retryAt;
+    if (!retryAt || retryAt <= Date.now()) return;
+    const timer = setTimeout(() => setClock(Date.now()), Math.min(retryAt - Date.now(), 2147483647));
+    return () => clearTimeout(timer);
+  }, [error, clock]);
+
+  const isWaitingCooldown = Boolean(error?.retryAt && error.retryAt > clock);
+
+  const hasSavedIntent = Boolean(location.state?.openSavedFlight);
+
   // A new navigation gets its own lifecycle, including repeated Open of the same code.
-  return <SavedFlightLookup key={location.key} intent={location.state?.openSavedFlight} />;
+  if (hasSavedIntent) {
+    return <SavedFlightLookup key={location.key} intent={location.state?.openSavedFlight} />;
+  }
+
+  const handleRetry = () => {
+    setClock(Date.now());
+    refresh?.(true);
+  };
+
+  // Task-14 & Task-21: If an aircraft is selected, render FlightDetailPanel with recovery support
+  if (selectedIcao24) {
+    return (
+      <FlightDetailPanel
+        icao24={selectedIcao24}
+        flights={flights}
+        meta={meta}
+        isPending={isPending}
+        isStale={isStale}
+        error={error}
+        onRefresh={handleRetry}
+        onClose={() => setSelectedIcao24?.(null)}
+      />
+    );
+  }
+
+  // Task-13 & Task-21: When no flight is selected, show list of aircraft in current viewport with recovery states
+  return (
+    <div className="space-y-3">
+      <div>
+        <h2 className="text-sm font-semibold text-teal-300">Radar Viewport</h2>
+        <p className="text-xs text-slate-400">
+          Pilih pesawat dari daftar di bawah atau klik marker pada peta untuk melihat telemetri.
+        </p>
+      </div>
+
+      {/* Error & Stale Alert Banner (F-03, F-15) */}
+      {error && (
+        <div role="alert" className="space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+          <div className="flex items-start gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256" className="mt-0.5 flex-shrink-0 text-amber-400">
+              <path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm-8-80V80a88,88,0,1,1,16,0v56a8,8,0,0,1-16,0Zm20,36a12,12,0,1,1-12-12A12,12,0,0,1,140,172Z" />
+            </svg>
+            <div className="space-y-1">
+              <p className="font-medium text-amber-300">
+                Pembaruan radar otomatis dijeda: {error.message || 'Koneksi gagal'}
+              </p>
+              {flights.length > 0 && (
+                <p className="text-[11px] text-amber-400/90">
+                  Data pengamatan sebelumnya tetap ditampilkan (Stale).
+                </p>
+              )}
+              {isWaitingCooldown && (
+                <p className="text-[11px] text-amber-300">
+                  Batas frekuensi aktif. Coba lagi setelah {new Date(error.retryAt).toISOString().slice(11, 19)} UTC.
+                </p>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleRetry}
+            disabled={isPending || isWaitingCooldown}
+            className="w-full rounded bg-amber-500/20 py-1.5 text-center text-xs font-medium text-amber-300 hover:bg-amber-500/30 disabled:opacity-50 transition"
+          >
+            {isPending ? 'Mencoba kembali…' : 'Coba Lagi'}
+          </button>
+        </div>
+      )}
+
+      {/* Empty State vs Aircraft List (F-16, F-17) */}
+      {flights.length === 0 ? (
+        <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 text-center text-xs text-slate-400 space-y-2">
+          <p>
+            {error
+              ? 'Data penerbangan tidak dapat dimuat saat ini.'
+              : 'Pesawat saat ini tidak terpantau di area ini. Ini tidak berarti pesawat telah mendarat.'}
+          </p>
+          <p className="text-[11px] text-slate-500">
+            Geser atau perbesar peta untuk memindai area lain.
+          </p>
+          {!error && (
+            <button
+              type="button"
+              onClick={handleRetry}
+              disabled={isPending}
+              className="mt-1 rounded bg-slate-800 px-3 py-1 text-xs text-teal-300 hover:bg-slate-700 disabled:opacity-50 transition"
+            >
+              {isPending ? 'Memindai…' : 'Pindai Ulang Radar'}
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+            <span>
+              {flights.length} Pesawat Aktif {isStale && <span className="text-amber-400 font-medium">(Stale)</span>}
+            </span>
+            <span className="text-[11px] text-slate-500 font-mono">ICAO24 / Callsign</span>
+          </div>
+          <div className="space-y-1 max-h-[calc(100vh-230px)] overflow-y-auto pr-1">
+            {flights.map((flight) => {
+              const callsign = flight.callsign?.trim();
+              const icao = flight.icao24?.toLowerCase();
+              return (
+                <button
+                  key={flight.icao24}
+                  type="button"
+                  onClick={() => {
+                    if (onSelectFlight) {
+                      onSelectFlight(flight);
+                    } else if (setSelectedIcao24) {
+                      setSelectedIcao24(flight.icao24);
+                    }
+                  }}
+                  className="w-full flex items-center justify-between p-2 rounded-lg bg-slate-800/50 hover:bg-slate-800 border border-slate-800/80 hover:border-teal-500/30 text-left transition group"
+                >
+                  <div className="min-w-0 pr-2">
+                    <div className="font-medium text-xs text-slate-200 group-hover:text-teal-300 truncate">
+                      {callsign || icao}
+                    </div>
+                    <div className="text-[11px] text-slate-400 truncate">
+                      {flight.origin_country || 'Asal tidak diketahui'}
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0 font-mono text-[11px] text-slate-400">
+                    {icao}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function SavedFlightLookup({ intent }) {

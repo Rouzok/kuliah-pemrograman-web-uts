@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import FlightMap from '../components/map/FlightMap';
 import { useFlightUpdates } from '../components/map/useFlightUpdates';
@@ -10,12 +11,14 @@ import { useFlightUpdates } from '../components/map/useFlightUpdates';
  * - F-02: Map display with active markers and heading rotation
  * - F-03: 30-second automatic update loop, pause offline/hidden, explicit retry
  * - F-06: Selection centers valid coordinates
- * - F-07: Escape key clears selection
+ * - F-07: Escape key, close button, or route switch clears selection
  * - NF-05: Single source of live viewport records, no redundant ticks
  */
 export default function MapLayout() {
   const [mapInstance, setMapInstance] = useState(null);
   const [selectedIcao24, setSelectedIcao24] = useState(null);
+  const location = useLocation();
+  const navigate = useNavigate();
 
   // 30-second live update loop
   const { flights, meta, isPending, isStale, error, refresh } = useFlightUpdates({
@@ -27,6 +30,9 @@ export default function MapLayout() {
   const handleSelectFlight = (aircraft) => {
     if (aircraft?.icao24) {
       setSelectedIcao24(aircraft.icao24);
+      if (location.pathname !== '/map' && location.pathname !== '/map/') {
+        navigate('/map');
+      }
       if (
         mapInstance &&
         Number.isFinite(aircraft.longitude) &&
@@ -40,6 +46,14 @@ export default function MapLayout() {
       }
     }
   };
+
+  // Navigating away from /map (e.g. to /map/airports or /map/saved) clears flight selection (F-06, F-07)
+  useEffect(() => {
+    const isFlightRoute = location.pathname === '/map' || location.pathname === '/map/';
+    if (!isFlightRoute) {
+      setSelectedIcao24(null);
+    }
+  }, [location.pathname]);
 
   // Deselect on Escape (F-07)
   useEffect(() => {
@@ -83,7 +97,7 @@ export default function MapLayout() {
             className={`h-2 w-2 rounded-full ${
               isPending
                 ? 'bg-amber-400 animate-pulse'
-                : isStale
+                : error || isStale
                 ? 'bg-red-400'
                 : 'bg-teal-400 animate-pulse'
             }`}
@@ -91,7 +105,11 @@ export default function MapLayout() {
           <span className="font-medium text-slate-200">
             {flights.length} Pesawat
           </span>
-          {isStale && <span className="text-amber-400 font-semibold">(Stale)</span>}
+          {error ? (
+            <span className="text-red-400 font-semibold">(Error)</span>
+          ) : isStale ? (
+            <span className="text-amber-400 font-semibold">(Stale)</span>
+          ) : null}
           <button
             type="button"
             onClick={() => refresh(true)}
