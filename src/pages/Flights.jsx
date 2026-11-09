@@ -10,6 +10,9 @@ import FlightFilters from '../components/FlightFilters.jsx';
 // === BAGIAN PENAMBAHAN TASK-09 (1): Impor Komponen FlightTable ===
 import FlightTable from '../components/FlightTable.jsx';
 
+// === BAGIAN PENAMBAHAN TASK-11 (1): Impor Komponen FlightColumnToggle ===
+import FlightColumnToggle from '../components/FlightColumnToggle.jsx';
+
 const buttonClass = 'rounded-md bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300 disabled:cursor-not-allowed disabled:opacity-50';
 
 export default function Flights() {
@@ -32,6 +35,9 @@ export default function Flights() {
   // === BAGIAN PENAMBAHAN TASK-10 (2): State untuk Search Query & Status Filter ===
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+
+  // === BAGIAN PENAMBAHAN TASK-11 (2): State untuk Sembunyikan/Tampilkan Kolom Opsional ===
+  const [visibleColumns, setVisibleColumns] = useState({});
 
   // Cooldown timer if error has retryAt (F-15)
   useEffect(() => {
@@ -142,7 +148,13 @@ export default function Flights() {
         totalCount={filteredFlights.length}
       />
 
-      {/* Empty State vs FlightTable (Task-09 & Task-10) */}
+      {/* === BAGIAN PENAMBAHAN TASK-11 (3): Render Komponen FlightColumnToggle === */}
+      <FlightColumnToggle
+        visibleColumns={visibleColumns}
+        setVisibleColumns={setVisibleColumns}
+      />
+
+      {/* Empty State vs FlightTable (Task-09 & Task-10 & Task-11) */}
       {filteredFlights.length === 0 ? (
         <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 text-center text-xs text-slate-400 space-y-2">
           <p>
@@ -175,7 +187,7 @@ export default function Flights() {
             <span className="text-[11px] text-slate-500 font-mono">Tabel Telemetri</span>
           </div>
 
-          {/* === BAGIAN PENAMBAHAN TASK-09 (2): Render Komponen FlightTable === */}
+          {/* === BAGIAN PENAMBAHAN TASK-09 & TASK-11 (4): Render Komponen FlightTable dengan visibleColumns === */}
           <FlightTable
             flights={filteredFlights}
             onSelectFlight={(flight) => {
@@ -187,6 +199,7 @@ export default function Flights() {
             }}
             savedIds={outletContext.savedIds || []}
             onToggleSave={outletContext.onToggleSave}
+            visibleColumns={visibleColumns}
           />
         </div>
       )}
