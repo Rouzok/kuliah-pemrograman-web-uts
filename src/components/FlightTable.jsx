@@ -20,6 +20,8 @@ export default function FlightTable({ flights = [], onSelectFlight, savedIds = [
             <th className="p-2.5 font-semibold">Country</th>
             <th className="p-2.5 font-semibold text-right">Alt (ft)</th>
             <th className="p-2.5 font-semibold text-right">Spd (kt)</th>
+            {/* BAGIAN PENAMBAHAN TASK-09: Kolom Heading */}
+            <th className="p-2.5 font-semibold text-right">Hdg (°)</th>
             <th className="p-2.5 font-semibold">Status</th>
             <th className="p-2.5 font-semibold text-center">Save</th>
           </tr>
@@ -29,6 +31,10 @@ export default function FlightTable({ flights = [], onSelectFlight, savedIds = [
             const callsignDisplay = formatCallsign(flight.callsign, flight.icao24);
             const altDisplay = formatAltitude(flight.baro_altitude ?? flight.geo_altitude);
             const spdDisplay = formatSpeed(flight.velocity);
+            // Format heading (true_track)
+            const hdgDisplay = flight.true_track !== null && flight.true_track !== undefined 
+              ? `${Math.round(flight.true_track)}°` 
+              : '—';
             const statusDisplay = formatFlightStatus(flight.on_ground);
             const isSaved = savedIds.includes(flight.icao24?.toLowerCase());
 
@@ -36,12 +42,23 @@ export default function FlightTable({ flights = [], onSelectFlight, savedIds = [
               <tr 
                 key={flight.icao24} 
                 onClick={() => onSelectFlight && onSelectFlight(flight)}
-                className="hover:bg-slate-800/50 cursor-pointer transition-colors"
+                // BAGIAN PENAMBAHAN TASK-09: Dukungan Aksesibilitas Keyboard (Enter / Space)
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onSelectFlight && onSelectFlight(flight);
+                  }
+                }}
+                className="hover:bg-slate-800/50 cursor-pointer transition-colors focus:outline-none focus:bg-slate-800/80"
+                title="Tekan Enter atau klik untuk melihat detail pesawat"
               >
                 <td className="p-2.5 font-medium text-teal-300">{callsignDisplay}</td>
                 <td className="p-2.5 text-slate-400 truncate max-w-[80px]">{flight.origin_country || '—'}</td>
                 <td className="p-2.5 text-right font-mono text-slate-300">{altDisplay}</td>
                 <td className="p-2.5 text-right font-mono text-slate-300">{spdDisplay}</td>
+                {/* Data Sel Heading */}
+                <td className="p-2.5 text-right font-mono text-slate-300">{hdgDisplay}</td>
                 <td className="p-2.5">
                   <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
                     flight.on_ground 
@@ -53,6 +70,7 @@ export default function FlightTable({ flights = [], onSelectFlight, savedIds = [
                 </td>
                 <td className="p-2.5 text-center" onClick={(e) => e.stopPropagation()}>
                   <button
+                    type="button"
                     onClick={() => onToggleSave && onToggleSave(flight)}
                     className={`p-1 rounded hover:bg-slate-700 transition-colors ${
                       isSaved ? 'text-teal-400' : 'text-slate-500 hover:text-slate-300'

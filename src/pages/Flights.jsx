@@ -7,6 +7,9 @@ import FlightDetailPanel from '../components/map/FlightDetailPanel.jsx';
 // === BAGIAN PENAMBAHAN TASK-10 (1): Impor Komponen FlightFilters ===
 import FlightFilters from '../components/FlightFilters.jsx';
 
+// === BAGIAN PENAMBAHAN TASK-09 (1): Impor Komponen FlightTable ===
+import FlightTable from '../components/FlightTable.jsx';
+
 const buttonClass = 'rounded-md bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300 disabled:cursor-not-allowed disabled:opacity-50';
 
 export default function Flights() {
@@ -139,7 +142,7 @@ export default function Flights() {
         totalCount={filteredFlights.length}
       />
 
-      {/* Empty State vs Aircraft List (F-16, F-17) */}
+      {/* Empty State vs FlightTable (Task-09 & Task-10) */}
       {filteredFlights.length === 0 ? (
         <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 text-center text-xs text-slate-400 space-y-2">
           <p>
@@ -169,41 +172,22 @@ export default function Flights() {
             <span>
               {filteredFlights.length} Pesawat Aktif {isStale && <span className="text-amber-400 font-medium">(Stale)</span>}
             </span>
-            <span className="text-[11px] text-slate-500 font-mono">ICAO24 / Callsign</span>
+            <span className="text-[11px] text-slate-500 font-mono">Tabel Telemetri</span>
           </div>
-          <div className="space-y-1 max-h-[calc(100vh-280px)] overflow-y-auto pr-1">
-            {/* === BAGIAN PENAMBAHAN TASK-10 (5): Menggunakan filteredFlights.map di dalam Return === */}
-            {filteredFlights.map((flight) => {
-              const callsign = flight.callsign?.trim();
-              const icao = flight.icao24?.toLowerCase();
-              return (
-                <button
-                  key={flight.icao24}
-                  type="button"
-                  onClick={() => {
-                    if (onSelectFlight) {
-                      onSelectFlight(flight);
-                    } else if (setSelectedIcao24) {
-                      setSelectedIcao24(flight.icao24);
-                    }
-                  }}
-                  className="w-full flex items-center justify-between p-2 rounded-lg bg-slate-800/50 hover:bg-slate-800 border border-slate-800/80 hover:border-teal-500/30 text-left transition group"
-                >
-                  <div className="min-w-0 pr-2">
-                    <div className="font-medium text-xs text-slate-200 group-hover:text-teal-300 truncate">
-                      {callsign || icao}
-                    </div>
-                    <div className="text-[11px] text-slate-400 truncate">
-                      {flight.origin_country || 'Asal tidak diketahui'}
-                    </div>
-                  </div>
-                  <div className="text-right flex-shrink-0 font-mono text-[11px] text-slate-400">
-                    {icao}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+
+          {/* === BAGIAN PENAMBAHAN TASK-09 (2): Render Komponen FlightTable === */}
+          <FlightTable
+            flights={filteredFlights}
+            onSelectFlight={(flight) => {
+              if (onSelectFlight) {
+                onSelectFlight(flight);
+              } else if (setSelectedIcao24) {
+                setSelectedIcao24(flight.icao24);
+              }
+            }}
+            savedIds={outletContext.savedIds || []}
+            onToggleSave={outletContext.onToggleSave}
+          />
         </div>
       )}
     </div>
