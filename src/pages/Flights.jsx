@@ -4,6 +4,15 @@ import { getFlight } from '../api/client.js';
 import { metersToFeet, metersPerSecondToKnots, groundState } from '../utils/aircraft.js';
 import FlightDetailPanel from '../components/map/FlightDetailPanel.jsx';
 
+// === BAGIAN PENAMBAHAN TASK-10 (1): Impor Komponen FlightFilters ===
+import FlightFilters from '../components/FlightFilters.jsx';
+
+// === BAGIAN PENAMBAHAN TASK-09 (1): Impor Komponen FlightTable ===
+import FlightTable from '../components/FlightTable.jsx';
+
+// === BAGIAN PENAMBAHAN TASK-11 (1): Impor Komponen FlightColumnToggle ===
+import FlightColumnToggle from '../components/FlightColumnToggle.jsx';
+
 const buttonClass = 'rounded-md bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300 disabled:cursor-not-allowed disabled:opacity-50';
 
 export default function Flights() {
@@ -22,6 +31,13 @@ export default function Flights() {
   } = outletContext;
 
   const [clock, setClock] = useState(() => Date.now());
+
+  // === BAGIAN PENAMBAHAN TASK-10 (2): State untuk Search Query & Status Filter ===
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  // === BAGIAN PENAMBAHAN TASK-11 (2): State untuk Sembunyikan/Tampilkan Kolom Opsional ===
+  const [visibleColumns, setVisibleColumns] = useState({});
 
   // Cooldown timer if error has retryAt (F-15)
   useEffect(() => {
@@ -60,6 +76,24 @@ export default function Flights() {
       />
     );
   }
+
+  // === BAGIAN PENAMBAHAN TASK-10 (3): Logika Filtering Data Berdasarkan Pencarian & Status ===
+  const filteredFlights = flights.filter((flight) => {
+    const query = searchQuery.toLowerCase().trim();
+    const callsign = (flight.callsign || '').toLowerCase();
+    const icao24 = (flight.icao24 || '').toLowerCase();
+    const country = (flight.origin_country || '').toLowerCase();
+
+    // Cek kecocokan search query pada callsign, icao24, atau negara
+    const matchesSearch = !query || callsign.includes(query) || icao24.includes(query) || country.includes(query);
+
+    if (!matchesSearch) return false;
+
+    // Cek filter status (All / Airborne / Ground)
+    if (statusFilter === 'airborne') return !flight.on_ground;
+    if (statusFilter === 'ground') return flight.on_ground;
+    return true; // 'all'
+  });
 
   // Task-13 & Task-21: When no flight is selected, show list of aircraft in current viewport with recovery states
   return (
@@ -105,18 +139,35 @@ export default function Flights() {
         </div>
       )}
 
-      {/* Empty State vs Aircraft List (F-16, F-17) */}
-      {flights.length === 0 ? (
+      {/* === BAGIAN PENAMBAHAN TASK-10 (4): Render Komponen FlightFilters di dalam Return === */}
+      <FlightFilters
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        statusFilter={statusFilter}
+        setStatusFilter={setStatusFilter}
+        totalCount={filteredFlights.length}
+      />
+
+      {/* === BAGIAN PENAMBAHAN TASK-11 (3): Render Komponen FlightColumnToggle === */}
+      <FlightColumnToggle
+        visibleColumns={visibleColumns}
+        setVisibleColumns={setVisibleColumns}
+      />
+
+      {/* Empty State vs FlightTable (Task-09 & Task-10 & Task-11) */}
+      {filteredFlights.length === 0 ? (
         <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 text-center text-xs text-slate-400 space-y-2">
           <p>
-            {error
+            {searchQuery || statusFilter !== 'all'
+              ? 'Tidak ada pesawat yang cocok dengan kriteria pencarian atau filter.'
+              : error
               ? 'Data penerbangan tidak dapat dimuat saat ini.'
               : 'Pesawat saat ini tidak terpantau di area ini. Ini tidak berarti pesawat telah mendarat.'}
           </p>
           <p className="text-[11px] text-slate-500">
             Geser atau perbesar peta untuk memindai area lain.
           </p>
-          {!error && (
+          {!error && !searchQuery && statusFilter === 'all' && (
             <button
               type="button"
               onClick={handleRetry}
@@ -131,42 +182,25 @@ export default function Flights() {
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs text-slate-400 px-1">
             <span>
-              {flights.length} Pesawat Aktif {isStale && <span className="text-amber-400 font-medium">(Stale)</span>}
+              {filteredFlights.length} Pesawat Aktif {isStale && <span className="text-amber-400 font-medium">(Stale)</span>}
             </span>
-            <span className="text-[11px] text-slate-500 font-mono">ICAO24 / Callsign</span>
+            <span className="text-[11px] text-slate-500 font-mono">Tabel Telemetri</span>
           </div>
-          <div className="space-y-1 max-h-[calc(100vh-230px)] overflow-y-auto pr-1">
-            {flights.map((flight) => {
-              const callsign = flight.callsign?.trim();
-              const icao = flight.icao24?.toLowerCase();
-              return (
-                <button
-                  key={flight.icao24}
-                  type="button"
-                  onClick={() => {
-                    if (onSelectFlight) {
-                      onSelectFlight(flight);
-                    } else if (setSelectedIcao24) {
-                      setSelectedIcao24(flight.icao24);
-                    }
-                  }}
-                  className="w-full flex items-center justify-between p-2 rounded-lg bg-slate-800/50 hover:bg-slate-800 border border-slate-800/80 hover:border-teal-500/30 text-left transition group"
-                >
-                  <div className="min-w-0 pr-2">
-                    <div className="font-medium text-xs text-slate-200 group-hover:text-teal-300 truncate">
-                      {callsign || icao}
-                    </div>
-                    <div className="text-[11px] text-slate-400 truncate">
-                      {flight.origin_country || 'Asal tidak diketahui'}
-                    </div>
-                  </div>
-                  <div className="text-right flex-shrink-0 font-mono text-[11px] text-slate-400">
-                    {icao}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+
+          {/* === BAGIAN PENAMBAHAN TASK-09 & TASK-11 (4): Render Komponen FlightTable dengan visibleColumns === */}
+          <FlightTable
+            flights={filteredFlights}
+            onSelectFlight={(flight) => {
+              if (onSelectFlight) {
+                onSelectFlight(flight);
+              } else if (setSelectedIcao24) {
+                setSelectedIcao24(flight.icao24);
+              }
+            }}
+            savedIds={outletContext.savedIds || []}
+            onToggleSave={outletContext.onToggleSave}
+            visibleColumns={visibleColumns}
+          />
         </div>
       )}
     </div>
