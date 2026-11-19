@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import FlightMap from '../components/map/FlightMap';
 import { useFlightUpdates } from '../components/map/useFlightUpdates';
+// === BAGIAN PERUBAHAN (1): Impor fungsi storage standar dari utils ===
+import { isFlightSaved, saveFlight, removeFlight } from '../utils/storage.js';
 
 /**
  * MapLayout (Task-12, Task-13)
@@ -25,6 +27,50 @@ export default function MapLayout() {
     mapInstance,
     enabled: true,
   });
+
+  // === BAGIAN PERUBAHAN (2): Sinkronisasi savedIds menggunakan storage.js dan event listener ===
+  const [savedIds, setSavedIds] = useState([]);
+
+  const syncSavedIds = () => {
+    if (!flights || flights.length === 0) return;
+    const activeIds = flights
+      .filter((f) => f.icao24 && isFlightSaved(`icao24:${f.icao24.toLowerCase()}`))
+      .map((f) => f.icao24.toLowerCase());
+    setSavedIds(activeIds);
+  };
+
+  // Sinkronisasi setiap kali data pesawat berubah atau ada perubahan bookmark eksternal (dari panel detail)
+  useEffect(() => {
+    syncSavedIds();
+    const handleBookmarksChanged = () => syncSavedIds();
+    window.addEventListener('bookmarksUpdated', handleBookmarksChanged);
+    return () => {
+      window.removeEventListener('bookmarksUpdated', handleBookmarksChanged);
+    };
+  }, [flights]);
+
+  // Fungsi toggle save/bookmark yang terintegrasi dengan storage.js
+  const handleToggleSave = (flight) => {
+    if (!flight?.icao24) return;
+    const icao = flight.icao24.toLowerCase();
+    const bookmarkId = `icao24:${icao}`;
+
+    try {
+      if (isFlightSaved(bookmarkId)) {
+        removeFlight(bookmarkId);
+        setSavedIds((prev) => prev.filter((id) => id !== icao));
+      } else {
+        saveFlight({
+          icao24: icao,
+          callsign: flight.callsign || undefined,
+          origin_country: flight.origin_country || undefined,
+        });
+        setSavedIds((prev) => [...prev, icao]);
+      }
+    } catch (err) {
+      console.error('Gagal memperbarui bookmark:', err);
+    }
+  };
 
   // Select aircraft and center map on valid coordinates (F-06)
   const handleSelectFlight = (aircraft) => {
@@ -76,6 +122,9 @@ export default function MapLayout() {
     selectedIcao24,
     setSelectedIcao24,
     onSelectFlight: handleSelectFlight,
+    // === DITAMBAHKAN KE OUTLET CONTEXT ===
+    savedIds,
+    onToggleSave: handleToggleSave,
   };
 
   return (
