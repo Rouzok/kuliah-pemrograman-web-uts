@@ -2,6 +2,28 @@ import { describe, expect, test, mock } from 'bun:test';
 import { createFlightUpdateController } from './flightUpdatesController.js';
 
 describe('Flight updates controller (Task-12)', () => {
+  test('ineligible transitions cancel pending work and ignore its late result', async () => {
+    let finish;
+    let signal;
+    const onData = mock(() => {});
+    const controller = createFlightUpdateController({
+      getBounds: () => [[0, 0, 1, 1]],
+      getFlights: (_, options) => { signal = options.signal; return new Promise((resolve) => { finish = resolve; }); },
+      onData,
+      onError: () => {},
+      setTimer: () => 1,
+      clearTimer: () => {},
+    });
+    controller.setEligibility(true);
+    const pending = controller.update();
+    controller.setEligibility(false);
+    expect(signal.aborted).toBe(true);
+    expect(await controller.update(true)).toBe(false);
+    finish({ data: [], meta: { fetchedAt: new Date().toISOString(), snapshotTime: 1 } });
+    expect(await pending).toBe(false);
+    expect(onData).not.toHaveBeenCalled();
+    controller.dispose();
+  });
   test('fetches flights and invokes onData when eligible', async () => {
     const mockFlightsData = [{ icao24: 'abc123', callsign: 'TEST1', time_position: 1000 }];
     const getFlights = mock(async () => ({
@@ -60,7 +82,8 @@ describe('Flight updates controller (Task-12)', () => {
 
   test('on failure, stops timer, reports error, and pauses until explicit retry', async () => {
     const errorToThrow = new Error('Upstream failed');
-    errorToThrow.retryAt = Date.now() + 60000;
+    let now = Date.now();
+    errorToThrow.retryAt = now + 60000;
 
     const failingGetFlights = mock(async () => {
       throw errorToThrow;
@@ -72,6 +95,7 @@ describe('Flight updates controller (Task-12)', () => {
     const controller = createFlightUpdateController({
       getBounds: () => [[-10, 95, 6, 141]],
       getFlights: failingGetFlights,
+      now: () => now,
       onData: () => {},
       onError: (err) => {
         reportedError = err;
@@ -92,7 +116,9 @@ describe('Flight updates controller (Task-12)', () => {
     const autoRetryResult = await controller.update(false);
     expect(autoRetryResult).toBe(false);
 
-    // Explicit retry should be allowed to proceed
+    expect(await controller.update(true)).toBe(false);
+    now = errorToThrow.retryAt;
+    // Explicit retry may proceed once the cooldown expires.
     let explicitAttempted = false;
     failingGetFlights.mockImplementationOnce(async () => {
       explicitAttempted = true;

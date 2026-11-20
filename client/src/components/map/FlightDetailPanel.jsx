@@ -213,13 +213,13 @@ export default function FlightDetailPanel({
           <div className="col-span-2 border-t border-slate-800/80 pt-2 text-[11px]">
             <dt className="text-slate-500">Waktu Observasi Posisi (UTC)</dt>
             <dd className="font-mono text-slate-300">
-              {data.time_position ? new Date(data.time_position * 1000).toISOString() : '—'}
+              {data.time_position != null ? new Date(data.time_position * 1000).toISOString() : '—'}
             </dd>
           </div>
           <div className="col-span-2 text-[11px]">
             <dt className="text-slate-500">Kontak Terakhir (UTC)</dt>
             <dd className="font-mono text-slate-300">
-              {data.last_contact ? new Date(data.last_contact * 1000).toISOString() : '—'}
+              {data.last_contact != null ? new Date(data.last_contact * 1000).toISOString() : '—'}
             </dd>
           </div>
           {meta?.fetchedAt && (

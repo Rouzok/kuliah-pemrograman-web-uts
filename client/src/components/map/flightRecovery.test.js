@@ -115,6 +115,7 @@ describe('Flight Recovery and Error Handling (Task-21 / F-03, F-15, F-16)', () =
       onError,
     });
 
+    controller.setEligibility(true);
     await controller.update(true);
     expect(controller.isFailed()).toBe(true);
     expect(controller.getRetryAt()).toBe(cooldownTimestamp);
@@ -138,6 +139,7 @@ describe('Flight Recovery and Error Handling (Task-21 / F-03, F-15, F-16)', () =
       onError,
     });
 
+    controller.setEligibility(true);
     const result = await controller.update(true);
     expect(result).toBe(true);
     expect(controller.isFailed()).toBe(false);

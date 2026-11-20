@@ -43,7 +43,7 @@ export function createFlightUpdateController({
   async function update(explicitRetry = false) {
     if (disposed) return false;
     // Automatic update while ineligible or failed is prevented
-    if (!eligible && !explicitRetry) return false;
+    if (!eligible || now() < retryAt) return false;
     if (failed && !explicitRetry) return false;
     // Prevent overlapping concurrent requests (F-03)
     if (active !== null) return false;
@@ -118,6 +118,11 @@ export function createFlightUpdateController({
     eligible = Boolean(isEligible);
     if (!eligible) {
       stopTimer();
+      if (active) {
+        active.abort();
+        active = null;
+        onPending(false);
+      }
     } else if (!failed) {
       startTimer();
     }
