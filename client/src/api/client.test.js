@@ -270,3 +270,19 @@ test('real Axios Fetch adapter rejects redirects and times out response bodies',
     server.stop(true);
   }
 });
+
+test('default browser client uses the website origin when no API origin is configured', async () => {
+  const originalLocation = globalThis.location;
+  const server = Bun.serve({ port: 0, fetch(request) {
+    expect(new URL(request.url).pathname).toBe('/api/flights');
+    return Response.json(envelope([], Date.now()));
+  } });
+  try {
+    globalThis.location = { origin: server.url.origin };
+    const client = await import('./client.js?test-same-origin');
+    expect((await client.getFlights(bounds)).data).toEqual([]);
+  } finally {
+    globalThis.location = originalLocation;
+    server.stop(true);
+  }
+});

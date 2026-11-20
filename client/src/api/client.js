@@ -98,5 +98,5 @@ export function createApiClient({ baseURL, adapter = 'fetch', now = () => Date.n
   };
 }
 
-const client = createApiClient({ baseURL: import.meta.env?.VITE_API_BASE_URL });
+const client = createApiClient({ baseURL: import.meta.env?.VITE_API_BASE_URL || globalThis.location?.origin });
 export const { getFlights, getFlight, getAirports } = client;

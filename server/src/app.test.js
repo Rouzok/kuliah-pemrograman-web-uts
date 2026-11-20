@@ -1,23 +1,23 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import axios from 'axios';
-import worker, { handleRequest } from './index.js';
+import { createApp, resolveClientIp } from './app.js';
+import { createResponseCache } from './cache.js';
+import { createRateLimiter } from './rateLimit.js';
 import { transport, createTokenManager } from './oauth.js';
 import { fetchOpenSky, ROUTES } from './opensky.js';
-import { createApiClient } from '../../src/api/client.js';
+import { createApiClient } from '../../client/src/api/client.js';
 
 const row = () => ['ABC123', ' GIA1 ', 'Indonesia', 0, 0, null, null, 0, false, 0, 0, null, null, null, 'ignored', false, 0];
 const payload = (states = [row()]) => ({ time: 1700000000, states });
-const env = () => ({ OPENSKY_CLIENT_ID: 'dummy-id', OPENSKY_CLIENT_SECRET: 'dummy-secret', ALLOWED_ORIGINS: 'http://localhost:5173,http://localhost:4173', RATE_LIMITER: { limit: async () => ({ success: true }) } });
-const headers = { Origin: 'http://localhost:5173', 'CF-Connecting-IP': '192.0.2.1' };
+const env = () => ({ OPENSKY_CLIENT_ID: 'dummy-id', OPENSKY_CLIENT_SECRET: 'dummy-secret', ALLOWED_ORIGINS: 'http://localhost:5273,http://localhost:4173' });
+const headers = { Origin: 'http://localhost:5273' };
 const path = '/api/flights?bbox=-1,100,1,102';
 const response = (data, status = 200, headers = {}) => ({ data, status, headers: new axios.AxiosHeaders(headers) });
 const originalAdapter = transport.defaults.adapter;
-const originalCaches = globalThis.caches;
 afterEach(() => {
   transport.defaults.adapter = originalAdapter;
-  globalThis.caches = originalCaches;
 });
-function upstream(handler = () => response(payload())) {
+function upstream(handler = () => response(payload()), options = {}) {
   const calls = [];
   // Fresh credentials avoid sharing tokens between isolated handler tests.
   const bindings = env();
@@ -26,21 +26,19 @@ function upstream(handler = () => response(payload())) {
     calls.push(config);
     return config.method === 'post' ? response({ access_token: 'dummy-token', expires_in: 1800 }) : handler(config);
   };
-  return { calls, bindings, run: (url = path, init = {}) => handleRequest(new Request(`https://proxy.test${url}`, { headers, ...init }), bindings) };
+  const limiter = { limit: async () => ({ success: true }) };
+  const app = createApp({ env: bindings, cache: null, limiter, getPeerAddress: () => '192.0.2.1', ...options });
+  return { calls, bindings, limiter, app, run: (url = path, init = {}) => app.request(`https://proxy.test${url}`, { headers, ...init }) };
 }
 function cacheStore() {
   const records = new Map();
-  globalThis.caches = {
-    default: {
-      match: async (request) => records.get(request.url)?.clone(),
-      put: async (request, value) => {
-        records.set(request.url, value.clone());
-      },
-    },
+  return {
+    records,
+    get: (key) => records.get(key)?.clone(),
+    set: (key, value) => records.set(key, value.clone()),
   };
-  return records;
 }
-describe('public Worker contract', () => {
+describe('public Hono API contract', () => {
   test('maps bounds, bearer transport, named fields and snapshot metadata', async () => {
     const { calls, run } = upstream();
     const result = await run();
@@ -159,9 +157,9 @@ describe('public Worker contract', () => {
 });
 describe('CORS, rate limits and cache', () => {
   test('preflight is local and exact origins are enforced on failures too', async () => {
-    const { run, calls, bindings } = upstream();
+    const { run, calls, limiter } = upstream();
     let limited = 0;
-    bindings.RATE_LIMITER.limit = async () => {
+    limiter.limit = async () => {
       limited++;
       return { success: true };
     };
@@ -171,35 +169,41 @@ describe('CORS, rate limits and cache', () => {
     expect(calls).toHaveLength(0);
     expect(preflight.headers.get('Access-Control-Allow-Origin')).toBe(headers.Origin);
     expect(preflight.headers.get('Access-Control-Allow-Credentials')).toBeNull();
-    expect((await run(path, { headers: { ...headers, Origin: 'http://localhost:5173.evil' } })).status).toBe(403);
+    expect((await run(path, { headers: { ...headers, Origin: 'http://localhost:5273.evil' } })).status).toBe(403);
     expect((await run(path, { method: 'OPTIONS', headers: { Origin: headers.Origin, 'Access-Control-Request-Method': 'POST' } })).status).toBe(400);
     const bad = await run('/api/flight?icao24=bad');
     expect(bad.headers.get('Access-Control-Allow-Origin')).toBe(headers.Origin);
     expect(bad.headers.get('Access-Control-Expose-Headers')).toBe('Retry-After');
     expect(bad.headers.get('Vary')).toBe('Origin');
-    expect((await run(path, { headers: { 'CF-Connecting-IP': '192.0.2.1' } })).status).toBe(200);
+    expect((await run(path, { headers: {} })).status).toBe(200);
   });
-  test('limiter rejects before cache/provider; missing/failing binding is controlled', async () => {
-    const { run, calls, bindings } = upstream();
-    cacheStore();
-    bindings.RATE_LIMITER.limit = async ({ key }) => {
+  test('limiter rejects before cache/provider; missing/failing limiter is controlled', async () => {
+    const { run, calls, limiter } = upstream(undefined, {
+      cache: {
+        get: () => {
+          throw new Error('Cache must not be reached.');
+        },
+      },
+    });
+    limiter.limit = async ({ key }) => {
       expect(key).toBe('192.0.2.1');
       return { success: false };
     };
     const result = await run();
     expect(result.status).toBe(429);
     expect(result.headers.get('Retry-After')).toBe('60');
-    bindings.RATE_LIMITER.limit = async () => {
+    limiter.limit = async () => {
       throw new Error('unsafe');
     };
     expect((await run()).status).toBe(503);
-    delete bindings.RATE_LIMITER;
+    delete limiter.limit;
     expect((await run()).status).toBe(503);
     expect(calls).toHaveLength(0);
   });
   test('canonical provider-versioned cache is origin independent with preserved timestamps and expiry', async () => {
-    const records = cacheStore();
-    const { run, calls } = upstream();
+    const cache = cacheStore();
+    const { records } = cache;
+    const { run, calls } = upstream(undefined, { cache });
     const first = await run();
     const body = await first.json();
     const second = await run('/api/flights?bbox=-1.0,100,1,102', { headers: { ...headers, Origin: 'http://localhost:4173' } });
@@ -208,15 +212,16 @@ describe('CORS, rate limits and cache', () => {
     expect(second.headers.get('Cache-Control')).toBe('no-store');
     expect(calls).toHaveLength(2);
     const [key, stored] = [...records][0];
-    expect(key).toContain('/__cache/opensky-v1/');
+    expect(key).toContain('opensky-v1/api/');
     expect(stored.headers.get('Access-Control-Allow-Origin')).toBeNull();
     records.set(key, Response.json({ ...body, meta: { ...body.meta, fetchedAt: new Date(Date.now() - 30000).toISOString() } }));
     await run();
     expect(calls).toHaveLength(3);
   });
   test('deferred airports never contact providers or enter cache; errors remain uncached', async () => {
-    const records = cacheStore();
-    const { run, calls } = upstream(() => response({}, 500));
+    const cache = cacheStore();
+    const { records } = cache;
+    const { run, calls } = upstream(() => response({}, 500), { cache });
     expect((await run('/api/airports')).status).toBe(503);
     expect(calls).toHaveLength(0);
     await run();
@@ -224,12 +229,12 @@ describe('CORS, rate limits and cache', () => {
     expect(calls).toHaveLength(3);
     expect(records.size).toBe(0);
   });
-  test('browser client consumes the Worker through an injectable Axios adapter', async () => {
-    const { bindings } = upstream();
+  test('browser client consumes Hono through an injectable Axios adapter', async () => {
+    const { app } = upstream();
     const client = createApiClient({
       baseURL: 'https://proxy.test',
       adapter: async (config) => {
-        const result = await worker.fetch(new Request(config.url, { headers }), bindings);
+        const result = await app.request(config.url, { headers });
         return response(await result.json(), result.status, Object.fromEntries(result.headers));
       },
     });
@@ -318,5 +323,87 @@ describe('OAuth lifecycle and sequence deadline', () => {
     } finally {
       server.stop(true);
     }
+  });
+});
+
+describe('Bun cache and rate limiter replacements', () => {
+  test('real cache expires at 30 seconds, returns independent copies and bounds memory', async () => {
+    let now = Date.now();
+    const cache = createResponseCache({ now: () => now, maxEntries: 2 });
+    const value = () => Response.json({ data: [], meta: { fetchedAt: new Date(now).toISOString(), snapshotTime: 0 } });
+    await cache.set('one', value());
+    const first = await cache.get('one').json();
+    first.data.push('changed');
+    expect((await cache.get('one').json()).data).toEqual([]);
+    now += 29999;
+    expect(cache.get('one')).not.toBeNull();
+    now++;
+    expect(cache.get('one')).toBeNull();
+    for (const key of ['one', 'two', 'three']) await cache.set(key, value());
+    expect(cache.get('one')).toBeNull();
+    expect(cache.get('two')).not.toBeNull();
+    await cache.set('failed', Response.json({}, { status: 503 }));
+    expect(cache.get('failed')).toBeNull();
+    await cache.set('invalid', Response.json({ data: [], meta: { fetchedAt: 'bad' } }));
+    expect(cache.get('invalid')).toBeNull();
+  });
+  test('60-per-minute limits are independent, expire and cannot be evicted early', () => {
+    let now = 0;
+    const limiter = createRateLimiter({ now: () => now, maxEntries: 2 });
+    for (let i = 0; i < 60; i++) expect(limiter.limit({ key: 'one' }).success).toBe(true);
+    expect(limiter.limit({ key: 'one' }).success).toBe(false);
+    expect(limiter.limit({ key: 'two' }).success).toBe(true);
+    expect(() => limiter.limit({ key: 'three' })).toThrow();
+    now = 59999;
+    expect(limiter.limit({ key: 'one' }).success).toBe(false);
+    now++;
+    expect(limiter.limit({ key: 'three' }).success).toBe(true);
+    expect(limiter.limit({ key: 'one' }).success).toBe(true);
+  });
+  test('forwarded IPs require a trusted immediate proxy and a single valid address', () => {
+    const request = (value) => new Request('http://local/api/flight', { headers: { 'X-Forwarded-For': value, 'CF-Connecting-IP': '203.0.113.2' } });
+    expect(resolveClientIp(request('203.0.113.1'), '192.0.2.1')).toBe('192.0.2.1');
+    expect(resolveClientIp(request('203.0.113.1'), '192.0.2.1', ['192.0.2.1'])).toBe('203.0.113.1');
+    expect(resolveClientIp(request('2001:db8::1'), '::1', ['::1'])).toBe('2001:db8::1');
+    for (const value of ['', 'unknown', '203.0.113.1, 192.0.2.2']) {
+      expect(resolveClientIp(request(value), '192.0.2.1', ['192.0.2.1'])).toBeNull();
+    }
+    expect(resolveClientIp(request('203.0.113.1'), undefined)).toBeNull();
+    expect(resolveClientIp(request('203.0.113.1'), 'bad')).toBeNull();
+  });
+  test('missing peer and failed middleware return safe CORS-readable configuration errors', async () => {
+    for (const getPeerAddress of [
+      () => null,
+      () => {
+        throw new Error('unsafe-peer-secret');
+      },
+    ]) {
+      const { run, calls } = upstream(undefined, { getPeerAddress });
+      const result = await run();
+      expect(result.status).toBe(503);
+      expect(result.headers.get('Access-Control-Allow-Origin')).toBe(headers.Origin);
+      expect(await result.text()).not.toContain('unsafe-peer-secret');
+      expect(calls).toHaveLength(0);
+    }
+  });
+  test('rate limit also applies to cached responses; cache failures leave successful data usable', async () => {
+    const cache = createResponseCache();
+    const { run, calls, limiter } = upstream(undefined, { cache });
+    expect((await run()).status).toBe(200);
+    expect(calls).toHaveLength(2);
+    limiter.limit = () => ({ success: false });
+    expect((await run()).status).toBe(429);
+    expect(calls).toHaveLength(2);
+    const broken = upstream(undefined, {
+      cache: {
+        get() {
+          throw new Error('cache');
+        },
+        set() {
+          throw new Error('cache');
+        },
+      },
+    });
+    expect((await broken.run()).status).toBe(200);
   });
 });

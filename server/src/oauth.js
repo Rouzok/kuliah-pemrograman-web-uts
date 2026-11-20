@@ -9,7 +9,7 @@ export const transport = axios.create({
 });
 const TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
 
-// One manager per isolate. The factory permits isolated adapter/clock tests.
+// One manager per server process. The factory permits isolated adapter/clock tests.
 export function createTokenManager(http = transport, now = Date.now) {
   let cached = null;
   let pending = null;
