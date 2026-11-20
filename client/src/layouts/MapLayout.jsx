@@ -25,7 +25,7 @@ export default function MapLayout() {
   // 30-second live update loop
   const { flights, meta, isPending, isStale, error, refresh } = useFlightUpdates({
     mapInstance,
-    enabled: true,
+    enabled: location.pathname === '/map' || location.pathname === '/map/',
   });
 
   // === BAGIAN PERUBAHAN (2): Sinkronisasi savedIds menggunakan storage.js dan event listener ===
