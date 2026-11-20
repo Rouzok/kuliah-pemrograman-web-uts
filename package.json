@@ -9,21 +9,26 @@
     "node": ">=22.22.0"
   },
   "scripts": {
-    "dev": "bun run --bun vite",
-    "build": "bun run --bun vite build",
-    "preview": "bun run --bun vite preview",
-    "test:api": "bun test src/api",
-    "test:globe": "bun test src/components/company",
-    "test:proxy": "bun test proxy/src",
-    "proxy:dev": "node node_modules/wrangler/bin/wrangler.js dev --config proxy/wrangler.jsonc",
-    "proxy:deploy": "bun run --bun wrangler deploy --config proxy/wrangler.jsonc",
-    "proxy:secret": "bun run --bun wrangler secret put --config proxy/wrangler.jsonc"
+    "dev": "bun --no-env-file run --bun vite --config client/vite.config.js",
+    "dev:server": "cd server && bun --watch src/index.js",
+    "build": "bun --no-env-file run --bun vite build --config client/vite.config.js",
+    "preview": "bun --no-env-file run --bun vite preview --config client/vite.config.js",
+    "start": "cd server && bun src/index.js --production",
+    "test": "bun --no-env-file test client/src server/src",
+    "test:api": "bun --no-env-file test client/src/api",
+    "test:globe": "bun --no-env-file test client/src/components/company",
+    "test:map": "bun --no-env-file test client/src/components/map",
+    "test:server": "bun --no-env-file test server/src",
+    "test:proxy": "pnpm test:server",
+    "smoke:server": "bun --no-env-file server/smoke.mjs"
   },
   "dependencies": {
     "@gsap/react": "2.1.2",
-    "gsap": "3.15.0",
-    "lenis": "1.3.27",
+    "@hono/bun": "1.0.1",
     "axios": "1.21.0",
+    "gsap": "3.15.0",
+    "hono": "4.13.19",
+    "lenis": "1.3.27",
     "maplibre-gl": "5.24.0",
     "maplibre-react-components": "0.2.6",
     "react": "19.3.1",
@@ -35,7 +40,6 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "6.1.2",
-    "vite": "8.3.5",
-    "wrangler": "4.152.0"
+    "vite": "8.3.5"
   }
 }

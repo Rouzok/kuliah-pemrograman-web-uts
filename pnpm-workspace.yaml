@@ -3,4 +3,3 @@ savePrefix: ''
 strictPeerDependencies: true
 allowBuilds:
   esbuild: true
-  workerd: true

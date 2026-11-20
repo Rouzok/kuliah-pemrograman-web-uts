@@ -1,0 +1,66 @@
+name: Flight Tracker CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: pnpm/action-setup@v6
+        with:
+          cache: true
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Test browser API client
+        run: pnpm test:api
+      - name: Test globe
+        run: pnpm test:globe
+      - name: Test Live Map
+        run: pnpm test:map
+      - name: Test Hono API and Bun runtime
+        run: pnpm test:server
+      - name: Build frontend for the combined server
+        env:
+          VITE_API_BASE_URL: ''
+        run: pnpm build
+      - name: Smoke-test the production server without provider access
+        env:
+          ALLOWED_ORIGINS: http://localhost:5273,http://localhost:4173
+        run: |
+          pnpm start > /tmp/flight-tracker-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          pnpm smoke:server
+      - name: Upload application artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flight-tracker
+          include-hidden-files: true
+          path: |
+            client/dist/
+            server/src/
+            package.json
+            pnpm-lock.yaml
+            pnpm-workspace.yaml
+            .bun-version
+            README.md
