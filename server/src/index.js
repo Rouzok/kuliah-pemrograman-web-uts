@@ -9,7 +9,7 @@ export function createServerApp({ staticRoot = defaultStaticRoot, ...options } =
   const app = createApp(options);
   // The API, including unknown API routes, is resolved before any SPA fallback.
   app.get('*', serveStatic({ root: staticRoot }));
-  for (const route of frontendRoutes) app.get(route, serveStatic({ path: staticRoot + '/index.html' }));
+  for (const route of frontendRoutes) app.get(route, serveStatic({ root: staticRoot, path: 'index.html' }));
   return app;
 }
 
