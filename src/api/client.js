@@ -99,4 +99,4 @@ export function createApiClient({ baseURL, adapter = 'fetch', now = () => Date.n
 }
 
 const client = createApiClient({ baseURL: import.meta.env?.VITE_API_BASE_URL });
-export const { getFlights, getFlight, getAirports } = client;
+export const { getFlights, getFlight, getAirports } = client; 
