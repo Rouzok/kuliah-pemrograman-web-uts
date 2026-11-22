@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { getConnInfo } from '@hono/bun';
 import { isIP } from 'node:net';
 import { ROUTES, fetchOpenSky } from './opensky.js';
+import { fetchAirports } from './airports.js';
 import { validateQuery } from './validation.js';
 import { failure } from './response.js';
 import { createResponseCache } from './cache.js';
@@ -82,7 +83,10 @@ export function createApp({ env = {}, cache = createResponseCache(), limiter = c
       } catch {
         return failure(503);
       }
-      if (route.endpoint === 'airports') return failure(503);
+
+      if (route.endpoint === 'airports') {
+        return fetchAirports(env, globalThis.fetch, now);
+      }
 
       const key = 'opensky-v1' + c.req.path + '?' + params.toString();
       try {

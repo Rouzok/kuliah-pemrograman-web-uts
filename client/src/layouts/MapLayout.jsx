@@ -1,10 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import FlightMap from '../components/map/FlightMap';
 import { useFlightUpdates } from '../components/map/useFlightUpdates';
 // === BAGIAN PERUBAHAN (1): Impor fungsi storage standar dari utils ===
 import { isFlightSaved, saveFlight, removeFlight } from '../utils/storage.js';
+
+function isValidAirportCoordinate(airport) {
+  return (
+    airport &&
+    typeof airport.latitude === 'number' &&
+    Number.isFinite(airport.latitude) &&
+    airport.latitude >= -90 &&
+    airport.latitude <= 90 &&
+    typeof airport.longitude === 'number' &&
+    Number.isFinite(airport.longitude) &&
+    airport.longitude >= -180 &&
+    airport.longitude <= 180
+  );
+}
 
 /**
  * MapLayout (Task-12, Task-13)
@@ -19,6 +33,7 @@ import { isFlightSaved, saveFlight, removeFlight } from '../utils/storage.js';
 export default function MapLayout() {
   const [mapInstance, setMapInstance] = useState(null);
   const [selectedIcao24, setSelectedIcao24] = useState(null);
+  const [selectedAirport, setSelectedAirport] = useState(null);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -75,6 +90,7 @@ export default function MapLayout() {
   // Select aircraft and center map on valid coordinates (F-06)
   const handleSelectFlight = (aircraft) => {
     if (aircraft?.icao24) {
+      setSelectedAirport(null);
       setSelectedIcao24(aircraft.icao24);
       if (location.pathname !== '/map' && location.pathname !== '/map/') {
         navigate('/map');
@@ -93,11 +109,31 @@ export default function MapLayout() {
     }
   };
 
-  // Navigating away from /map (e.g. to /map/airports or /map/saved) clears flight selection (F-06, F-07)
+  // Locate airport: center map on valid coordinates and set active airport marker
+  const handleLocateAirport = useCallback(
+    (airport) => {
+      if (!isValidAirportCoordinate(airport)) return;
+      setSelectedIcao24(null);
+      setSelectedAirport(airport);
+      if (mapInstance) {
+        mapInstance.flyTo({
+          center: [airport.longitude, airport.latitude],
+          essential: true,
+          speed: 1.2,
+        });
+      }
+    },
+    [mapInstance]
+  );
+
+  // Navigating away from /map clears flight selection; leaving /map/airports clears selected airport
   useEffect(() => {
     const isFlightRoute = location.pathname === '/map' || location.pathname === '/map/';
     if (!isFlightRoute) {
       setSelectedIcao24(null);
+    }
+    if (!location.pathname.startsWith('/map/airports')) {
+      setSelectedAirport(null);
     }
   }, [location.pathname]);
 
@@ -106,6 +142,7 @@ export default function MapLayout() {
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
         setSelectedIcao24(null);
+        setSelectedAirport(null);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -122,6 +159,8 @@ export default function MapLayout() {
     selectedIcao24,
     setSelectedIcao24,
     onSelectFlight: handleSelectFlight,
+    selectedAirport,
+    onLocateAirport: handleLocateAirport,
     // === DITAMBAHKAN KE OUTLET CONTEXT ===
     savedIds,
     onToggleSave: handleToggleSave,
@@ -135,6 +174,7 @@ export default function MapLayout() {
           flights={flights}
           selectedIcao24={selectedIcao24}
           onSelectFlight={handleSelectFlight}
+          selectedAirport={selectedAirport}
           onMapReady={setMapInstance}
         />
       </main>
