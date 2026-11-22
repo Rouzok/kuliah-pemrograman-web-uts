@@ -40,7 +40,7 @@ export function createApiClient({ baseURL, adapter = 'fetch', now = () => Date.n
   let cooldown = null;
   const http = axios.create({ adapter, validateStatus: () => true, responseType: 'json', withCredentials: false, fetchOptions: { credentials: 'omit', redirect: 'error', cache: 'no-store' } });
 
-  async function fetchEnvelope(url, detail, ttl) {
+  async function fetchEnvelope(url, kind, ttl) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -55,7 +55,7 @@ export function createApiClient({ baseURL, adapter = 'fetch', now = () => Date.n
         throw error;
       }
       const body = response.data;
-      if (!isValidEnvelope(body, detail)) throw new ApiError('INVALID_RESPONSE', { status: response.status });
+      if (!isValidEnvelope(body, kind)) throw new ApiError('INVALID_RESPONSE', { status: response.status });
       const expiresAt = Date.parse(body.meta.fetchedAt) + ttl;
       // Bound memory during a long session with many different viewport requests.
       for (const [key, entry] of cache) if (entry.expiresAt <= now()) cache.delete(key);
@@ -80,7 +80,8 @@ export function createApiClient({ baseURL, adapter = 'fetch', now = () => Date.n
     cache.delete(key);
     if (pending.has(key)) return forConsumer(pending.get(key), signal);
     if (cooldown?.retryAt > now()) throw new ApiError(cooldown.code, cooldown);
-    const promise = fetchEnvelope(key, path === '/api/flight', ttl).finally(() => pending.delete(key));
+    const kind = path === '/api/flight' ? 'flight' : path === '/api/airports' ? 'airports' : 'flights';
+    const promise = fetchEnvelope(key, kind, ttl).finally(() => pending.delete(key));
     pending.set(key, promise);
     return forConsumer(promise, signal);
   }
@@ -93,7 +94,7 @@ export function createApiClient({ baseURL, adapter = 'fetch', now = () => Date.n
       return request('/api/flight', normalizeFlightParams(params), 30000, options);
     },
     async getAirports(params = {}, options) {
-      return request('/api/airports', normalizeAirportParams(params), 0, options);
+      return request('/api/airports', normalizeAirportParams(params), 300000, options);
     },
   };
 }

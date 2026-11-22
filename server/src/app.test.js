@@ -9,14 +9,19 @@ import { createApiClient } from '../../client/src/api/client.js';
 
 const row = () => ['ABC123', ' GIA1 ', 'Indonesia', 0, 0, null, null, 0, false, 0, 0, null, null, null, 'ignored', false, 0];
 const payload = (states = [row()]) => ({ time: 1700000000, states });
+const airportsPayload = (items = [{ name: 'Soekarno-Hatta International Airport', iata: 'CGK', icao: 'WIII', country: 'Indonesia', latitude: -6.12556, longitude: 106.656 }]) => items;
 const env = () => ({ OPENSKY_CLIENT_ID: 'dummy-id', OPENSKY_CLIENT_SECRET: 'dummy-secret', ALLOWED_ORIGINS: 'http://localhost:5273,http://localhost:4173' });
 const headers = { Origin: 'http://localhost:5273' };
 const path = '/api/flights?bbox=-1,100,1,102';
 const response = (data, status = 200, headers = {}) => ({ data, status, headers: new axios.AxiosHeaders(headers) });
 const originalAdapter = transport.defaults.adapter;
+const originalFetch = globalThis.fetch;
+
 afterEach(() => {
   transport.defaults.adapter = originalAdapter;
+  globalThis.fetch = originalFetch;
 });
+
 function upstream(handler = () => response(payload()), options = {}) {
   const calls = [];
   // Fresh credentials avoid sharing tokens between isolated handler tests.
@@ -30,6 +35,7 @@ function upstream(handler = () => response(payload()), options = {}) {
   const app = createApp({ env: bindings, cache: null, limiter, getPeerAddress: () => '192.0.2.1', ...options });
   return { calls, bindings, limiter, app, run: (url = path, init = {}) => app.request(`https://proxy.test${url}`, { headers, ...init }) };
 }
+
 function cacheStore() {
   const records = new Map();
   return {
@@ -38,6 +44,7 @@ function cacheStore() {
     set: (key, value) => records.set(key, value.clone()),
   };
 }
+
 describe('public Hono API contract', () => {
   test('maps bounds, bearer transport, named fields and snapshot metadata', async () => {
     const { calls, run } = upstream();
@@ -155,6 +162,7 @@ describe('public Hono API contract', () => {
     }
   });
 });
+
 describe('CORS, rate limits and cache', () => {
   test('preflight is local and exact origins are enforced on failures too', async () => {
     const { run, calls, limiter } = upstream();
@@ -218,18 +226,21 @@ describe('CORS, rate limits and cache', () => {
     await run();
     expect(calls).toHaveLength(3);
   });
-  test('deferred airports never contact providers or enter cache; errors remain uncached', async () => {
+  test('airports endpoint normalizes data and does not pollute opensky cache on upstream failure', async () => {
+    globalThis.fetch = async () => new Response(JSON.stringify(airportsPayload()), { status: 200, headers: { 'Content-Type': 'application/json' } });
     const cache = cacheStore();
     const { records } = cache;
     const { run, calls } = upstream(() => response({}, 500), { cache });
-    expect((await run('/api/airports')).status).toBe(503);
+    const res = await run('/api/airports');
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.meta.source).toBe('airportsapi');
+    expect(json.data[0]).toMatchObject({ name: 'Soekarno-Hatta International Airport', iata: 'CGK', icao: 'WIII', country: 'Indonesia' });
     expect(calls).toHaveLength(0);
-    await run();
-    await run();
-    expect(calls).toHaveLength(3);
     expect(records.size).toBe(0);
   });
   test('browser client consumes Hono through an injectable Axios adapter', async () => {
+    globalThis.fetch = async () => new Response(JSON.stringify(airportsPayload()), { status: 200, headers: { 'Content-Type': 'application/json' } });
     const { app } = upstream();
     const client = createApiClient({
       baseURL: 'https://proxy.test',
@@ -239,9 +250,12 @@ describe('CORS, rate limits and cache', () => {
       },
     });
     expect((await client.getFlight({ icao24: 'ABC123' })).data.icao24).toBe('abc123');
-    await expect(client.getAirports()).rejects.toMatchObject({ code: 'CONFIGURATION', status: 503 });
+    const airportsRes = await client.getAirports();
+    expect(airportsRes.meta.source).toBe('airportsapi');
+    expect(airportsRes.data).toHaveLength(1);
   });
 });
+
 describe('OAuth lifecycle and sequence deadline', () => {
   test('reuses tokens, deduplicates acquisition, renews at margin and protects newer tokens', async () => {
     let now = 0,

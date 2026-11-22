@@ -20,8 +20,19 @@ const aircraft = {
   vertical_rate: null,
   geo_altitude: null,
 };
+const airport = {
+  id: 'WIII-CGK-0',
+  name: 'Soekarno-Hatta International Airport',
+  iata: 'CGK',
+  icao: 'WIII',
+  country: 'Indonesia',
+  latitude: -6.12556,
+  longitude: 106.656,
+};
 const envelope = (data = [], time = START) => ({ data, meta: { fetchedAt: new Date(time).toISOString(), source: 'opensky', snapshotTime: 0 } });
+const airportsEnvelope = (data = [airport], time = START) => ({ data, meta: { fetchedAt: new Date(time).toISOString(), source: 'airportsapi' } });
 const reply = (data = envelope(), status = 200, headers = {}) => ({ data, status, headers: new axios.AxiosHeaders(headers) });
+
 function setup(handler = () => reply(), options = {}) {
   let time = START;
   const calls = [];
@@ -86,6 +97,7 @@ describe('public client contract', () => {
     expect((await setup(() => reply(envelope(null))).client.getFlight(detail)).data).toBeNull();
   });
 });
+
 describe('freshness, deduplication and cancellation', () => {
   test('shares pending requests and returns independent copies', async () => {
     const pending = Promise.withResolvers();
@@ -138,6 +150,7 @@ describe('freshness, deduplication and cancellation', () => {
     expect(success.calls[0].signal.aborted).toBe(false);
   });
 });
+
 describe('safe errors and cooldown', () => {
   test('maps statuses and discards unsafe errors', async () => {
     for (const [status, code] of [
@@ -165,7 +178,13 @@ describe('safe errors and cooldown', () => {
     test(`cooldown ${header} permits cached/pending work without retry timers`, async () => {
       const pending = Promise.withResolvers();
       let quota = false;
-      const { client, calls, advance } = setup(({ url }) => (url.includes('/api/flight?') ? pending.promise : quota ? reply({}, 429, { 'Retry-After': header }) : reply()));
+      const { client, calls, advance } = setup(({ url }) => {
+        if (url.includes('/api/flight?')) return pending.promise;
+        if (url.includes('/api/airports')) {
+          return quota ? reply({}, 429, { 'Retry-After': header }) : reply(airportsEnvelope());
+        }
+        return reply();
+      });
       await client.getFlights(bounds);
       const a = client.getFlight(detail);
       quota = true;
@@ -178,7 +197,8 @@ describe('safe errors and cooldown', () => {
       advance(60000);
       expect(calls).toHaveLength(3);
       quota = false;
-      await client.getAirports();
+      const airportsRes = await client.getAirports();
+      expect(airportsRes.meta.source).toBe('airportsapi');
       expect(calls).toHaveLength(4);
     });
   test('invalid retry headers create no cooldown', async () => {
@@ -273,10 +293,13 @@ test('real Axios Fetch adapter rejects redirects and times out response bodies',
 
 test('default browser client uses the website origin when no API origin is configured', async () => {
   const originalLocation = globalThis.location;
-  const server = Bun.serve({ port: 0, fetch(request) {
-    expect(new URL(request.url).pathname).toBe('/api/flights');
-    return Response.json(envelope([], Date.now()));
-  } });
+  const server = Bun.serve({
+    port: 0,
+    fetch(request) {
+      expect(new URL(request.url).pathname).toBe('/api/flights');
+      return Response.json(envelope([], Date.now()));
+    },
+  });
   try {
     globalThis.location = { origin: server.url.origin };
     const client = await import('./client.js?test-same-origin');

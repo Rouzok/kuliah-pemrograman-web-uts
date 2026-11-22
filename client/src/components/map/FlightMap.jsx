@@ -15,6 +15,39 @@ import {
   createAirplaneMarkerElement,
 } from './markerUtils.js';
 
+function isValidAirport(airport) {
+  return (
+    airport &&
+    typeof airport.latitude === 'number' &&
+    Number.isFinite(airport.latitude) &&
+    airport.latitude >= -90 &&
+    airport.latitude <= 90 &&
+    typeof airport.longitude === 'number' &&
+    Number.isFinite(airport.longitude) &&
+    airport.longitude >= -180 &&
+    airport.longitude <= 180
+  );
+}
+
+function createAirportMarkerElement(airport) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'flex flex-col items-center select-none pointer-events-none';
+
+  const label = document.createElement('div');
+  label.className =
+    'mb-1 rounded-md border border-amber-400/50 bg-slate-900/95 px-2 py-0.5 text-[11px] font-semibold text-amber-200 shadow-lg whitespace-nowrap';
+  const codes = [airport.iata, airport.icao].filter(Boolean).join(' / ');
+  label.textContent = codes ? `${airport.name} (${codes})` : airport.name;
+
+  const pin = document.createElement('div');
+  pin.className =
+    'flex h-4 w-4 items-center justify-center rounded-full border-2 border-white bg-amber-500 shadow-md';
+
+  wrapper.appendChild(label);
+  wrapper.appendChild(pin);
+  return wrapper;
+}
+
 /**
  * FlightMap Component (MapLibre GL 5)
  *
@@ -33,6 +66,7 @@ export default function FlightMap({
   flights = [],
   selectedIcao24 = null,
   onSelectFlight,
+  selectedAirport = null,
   onMapReady,
   onMoveEnd,
   className = 'h-full w-full',
@@ -40,6 +74,7 @@ export default function FlightMap({
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersRef = useRef(new Map()); // Key: icao24 -> { marker, isSelected }
+  const airportMarkerRef = useRef(null);
 
   const [mapError, setMapError] = useState(null);
   const [isSupported, setIsSupported] = useState(true);
@@ -131,11 +166,17 @@ export default function FlightMap({
       if (resizeObserver) {
         resizeObserver.disconnect();
       }
-      // Remove all markers
+      // Remove all aircraft markers
       for (const entry of markersRef.current.values()) {
         entry.marker.remove();
       }
       markersRef.current.clear();
+
+      // Remove active airport marker
+      if (airportMarkerRef.current) {
+        airportMarkerRef.current.remove();
+        airportMarkerRef.current = null;
+      }
 
       if (map) {
         map.remove();
@@ -203,6 +244,27 @@ export default function FlightMap({
       }
     }
   }, [flights, selectedIcao24, isMapReady, onSelectFlight]);
+
+  // Synchronize single located airport marker and label
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !isMapReady) return;
+
+    if (airportMarkerRef.current) {
+      airportMarkerRef.current.remove();
+      airportMarkerRef.current = null;
+    }
+
+    if (isValidAirport(selectedAirport)) {
+      const el = createAirportMarkerElement(selectedAirport);
+      airportMarkerRef.current = new maplibregl.Marker({
+        element: el,
+        anchor: 'bottom',
+      })
+        .setLngLat([selectedAirport.longitude, selectedAirport.latitude])
+        .addTo(map);
+    }
+  }, [selectedAirport, isMapReady]);
 
   const handleRetry = () => {
     setMapError(null);
