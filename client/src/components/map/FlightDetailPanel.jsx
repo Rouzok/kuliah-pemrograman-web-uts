@@ -23,6 +23,12 @@ export function resolveAircraftDetails(icao24, flights = [], lastKnownAircraft =
   return { aircraft: null, isMissingFromSnapshot: true };
 }
 
+function formatConvertedValue(value, unit, decimals = 0) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+  const rounded = decimals > 0 ? Number(value.toFixed(decimals)) : Math.round(value);
+  return `${rounded.toLocaleString()} ${unit}`;
+}
+
 export default function FlightDetailPanel({
   icao24,
   flights = [],
@@ -184,23 +190,27 @@ export default function FlightDetailPanel({
           </div>
           <div>
             <dt className="text-slate-500">Arah Terbang (Heading)</dt>
-            <dd className="font-medium text-slate-200">{data.true_track !== null && data.true_track !== undefined ? `${data.true_track}°` : '—'}</dd>
+            <dd className="font-medium text-slate-200">
+              {data.true_track !== null && data.true_track !== undefined ? `${data.true_track}°` : '—'}
+            </dd>
           </div>
           <div>
             <dt className="text-slate-500">Ketinggian Barometrik</dt>
-            <dd className="font-medium text-slate-200">{text(metersToFeet(data.baro_altitude))} ft</dd>
+            <dd className="font-medium text-slate-200">{formatConvertedValue(metersToFeet(data.baro_altitude), 'ft')}</dd>
           </div>
           <div>
             <dt className="text-slate-500">Ketinggian Geometrik</dt>
-            <dd className="font-medium text-slate-200">{text(metersToFeet(data.geo_altitude))} ft</dd>
+            <dd className="font-medium text-slate-200">{formatConvertedValue(metersToFeet(data.geo_altitude), 'ft')}</dd>
           </div>
           <div>
             <dt className="text-slate-500">Kecepatan Darat</dt>
-            <dd className="font-medium text-slate-200">{text(metersPerSecondToKnots(data.velocity))} kt</dd>
+            <dd className="font-medium text-slate-200">{formatConvertedValue(metersPerSecondToKnots(data.velocity), 'kt')}</dd>
           </div>
           <div>
             <dt className="text-slate-500">Kecepatan Vertikal</dt>
-            <dd className="font-medium text-slate-200">{data.vertical_rate !== null && data.vertical_rate !== undefined ? `${data.vertical_rate} m/s` : '—'}</dd>
+            <dd className="font-medium text-slate-200">
+              {data.vertical_rate !== null && data.vertical_rate !== undefined ? `${data.vertical_rate} m/s` : '—'}
+            </dd>
           </div>
           <div>
             <dt className="text-slate-500">Latitude</dt>
@@ -242,4 +252,3 @@ export default function FlightDetailPanel({
     </section>
   );
 }
-

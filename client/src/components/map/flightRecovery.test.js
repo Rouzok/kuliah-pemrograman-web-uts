@@ -149,4 +149,77 @@ describe('Flight Recovery and Error Handling (Task-21 / F-03, F-15, F-16)', () =
 
     controller.dispose();
   });
+
+  test('ignores obsolete responses after controller is disposed', async () => {
+    let resolveRequest;
+    const onData = mock(() => {});
+    const onError = mock(() => {});
+
+    const slowGetFlights = mock(
+      () =>
+        new Promise((resolve) => {
+          resolveRequest = resolve;
+        })
+    );
+
+    const controller = createFlightUpdateController({
+      getBounds: () => [dummyBbox],
+      getFlights: slowGetFlights,
+      onData,
+      onError,
+    });
+
+    controller.setEligibility(true);
+    const pendingUpdate = controller.update(true);
+
+    controller.dispose();
+    resolveRequest({
+      data: [{ icao24: 'old999', callsign: 'OLD999', longitude: 106.8, latitude: -6.2, on_ground: false }],
+      meta: { fetchedAt: '2026-11-07T12:00:00Z', snapshotTime: 1794050000, source: 'opensky' },
+    });
+
+    const result = await pendingUpdate;
+    expect(result).toBe(false);
+    expect(onData).toHaveBeenCalledTimes(0);
+    expect(onError).toHaveBeenCalledTimes(0);
+  });
+
+  test('preserves valid zero and false values without treating them as missing or error', async () => {
+    const onData = mock(() => {});
+    const onError = mock(() => {});
+
+    const zeroAndFalseFlight = {
+      icao24: 'zro000',
+      callsign: 'ZERO0',
+      origin_country: 'Indonesia',
+      longitude: 0,
+      latitude: 0,
+      baro_altitude: 0,
+      geo_altitude: 0,
+      velocity: 0,
+      true_track: 0,
+      vertical_rate: 0,
+      on_ground: false,
+    };
+
+    const mockGetFlights = mock(async () => ({
+      data: [zeroAndFalseFlight],
+      meta: { fetchedAt: '2026-11-07T12:15:00Z', snapshotTime: 1794050900, source: 'opensky' },
+    }));
+
+    const controller = createFlightUpdateController({
+      getBounds: () => [dummyBbox],
+      getFlights: mockGetFlights,
+      onData,
+      onError,
+    });
+
+    controller.setEligibility(true);
+    const ok = await controller.update(true);
+    expect(ok).toBe(true);
+    expect(onError).toHaveBeenCalledTimes(0);
+    expect(onData.mock.calls[0][0].data[0]).toEqual(zeroAndFalseFlight);
+
+    controller.dispose();
+  });
 });

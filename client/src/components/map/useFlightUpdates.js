@@ -26,6 +26,9 @@ export function useFlightUpdates({
   const mapRef = useRef(mapInstance);
   mapRef.current = mapInstance;
 
+  const flightsRef = useRef(flights);
+  flightsRef.current = flights;
+
   useEffect(() => {
     const isOnline = () => (typeof navigator !== 'undefined' ? navigator.onLine : true);
     const isVisible = () => (typeof document !== 'undefined' ? document.visibilityState === 'visible' : true);
@@ -40,7 +43,7 @@ export function useFlightUpdates({
         setError(null);
       },
       onError: (err) => {
-        setIsStale(true); // Retain previous records with stale indication (F-03)
+        setIsStale(flightsRef.current.length > 0); // Retain stale flag only when prior records exist
         setError(err);
       },
       onPending: (pending) => {
@@ -102,4 +105,3 @@ export function useFlightUpdates({
     refresh,
   };
 }
-
